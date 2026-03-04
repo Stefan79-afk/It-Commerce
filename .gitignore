@@ -1,0 +1,8 @@
+plan.txt
+
+# User Service
+users-service/env
+users-service/test.py
+.env
+__pycache__/
+*.pyc
