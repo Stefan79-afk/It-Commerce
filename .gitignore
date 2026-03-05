@@ -8,3 +8,5 @@ users-service/test.py
 __pycache__/
 *.pyc
 
+# Orders Service
+orders-service/node_modules

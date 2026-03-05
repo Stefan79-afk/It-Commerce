@@ -69,7 +69,42 @@ services:
     command: >
       sh -c "./mvnw -q -DskipTests spring-boot:run"
 
+# ---------- ORDERS ----------
+  orders-db:
+    image: mongo:7
+    container_name: orders-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${ORDERS_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${ORDERS_MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${ORDERS_MONGO_DB}
+    ports:
+      - "27017:27017"   # optional for host tooling
+    volumes:
+      - orders_db_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  orders-service:
+    build:
+      context: ./orders-service/
+    container_name: orders-service
+    env_file:
+      - .env
+    depends_on:
+      orders-db:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./orders-service:/app
+      - /app/node_modules   # keeps container node_modules from being overwritten by bind mount
+    command: npm run dev
+
 
 volumes:
   users_db_data:
   products_db_data:
+  orders_db_data:
