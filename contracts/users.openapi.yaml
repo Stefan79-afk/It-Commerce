@@ -297,7 +297,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /api/v1/.well-known/jwks.json:
+  /.well-known/jwks.json:
     get:
       tags: [Auth]
       summary: Public JWKS endpoint

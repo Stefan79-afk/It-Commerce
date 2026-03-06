@@ -5,8 +5,17 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
-from .serializers import RegisterRequestSerializer, RegisterResponseSerializer
-from .services import create_user_from_register_payload
+from .serializers import (
+    LoginRequestSerializer,
+    LoginResponseSerializer,
+    RegisterRequestSerializer,
+    RegisterResponseSerializer,
+)
+from .services import (
+    authenticate_user_and_issue_tokens,
+    create_user_from_register_payload,
+    get_jwks_payload,
+)
 
 
 @api_view(["GET"])
@@ -29,3 +38,17 @@ def register(request):
     user = create_user_from_register_payload(serializer.validated_data)
     response_payload = RegisterResponseSerializer(user).data
     return Response(response_payload, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def login(request):
+    serializer = LoginRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    response_payload = authenticate_user_and_issue_tokens(**serializer.validated_data)
+    return Response(LoginResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def jwks(request):
+    return Response(get_jwks_payload(), status=status.HTTP_200_OK)

@@ -134,3 +134,12 @@ STATIC_URL = 'static/'
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "users.exception_handlers.standard_exception_handler",
 }
+
+USERS_JWT_PRIVATE_KEY = os.getenv("USERS_JWT_PRIVATE_KEY", "")
+USERS_JWT_KID = os.getenv("USERS_JWT_KID", "users-key-1")
+USERS_JWT_ISSUER = os.getenv("USERS_JWT_ISSUER", "itcommerce-users")
+USERS_JWT_AUDIENCE = os.getenv("USERS_JWT_AUDIENCE", "itcommerce-api")
+USERS_JWT_ACCESS_TTL_SECONDS = int(os.getenv("USERS_JWT_ACCESS_TTL_SECONDS", "900"))
+USERS_JWT_REFRESH_TTL_SECONDS = int(
+    os.getenv("USERS_JWT_REFRESH_TTL_SECONDS", "604800")
+)

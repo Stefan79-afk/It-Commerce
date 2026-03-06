@@ -68,3 +68,17 @@ class RegisterResponseSerializer(serializers.Serializer):
         if payload.get("phoneNumber") in (None, ""):
             payload.pop("phoneNumber", None)
         return payload
+
+
+class LoginRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False, allow_blank=False)
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class LoginResponseSerializer(serializers.Serializer):
+    accessToken = serializers.CharField()
+    refreshToken = serializers.CharField()
+    expiresIn = serializers.IntegerField(min_value=1)

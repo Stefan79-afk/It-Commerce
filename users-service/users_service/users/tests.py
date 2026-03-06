@@ -1,17 +1,53 @@
-from django.contrib.auth.hashers import check_password
-from django.test import TestCase
+import json
+from django.contrib.auth.hashers import check_password, make_password
+from django.test import TestCase, override_settings
 from unittest.mock import patch
 
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django.db.utils import DatabaseError
 from rest_framework.test import APITestCase
 
-from .models import User
+from .exceptions import UnauthorizedError
+from .models import RefreshToken, User
 from .serializers import (
     PASSWORD_RULES_MESSAGE,
     PHONE_RULES_MESSAGE,
     RegisterRequestSerializer,
 )
-from .services import create_user_from_register_payload
+from .services import (
+    authenticate_user_and_issue_tokens,
+    create_user_from_register_payload,
+    get_jwks_payload,
+)
+
+
+def _generate_test_private_key_pem() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+
+class JwtSettingsMixin:
+    def setUp(self):
+        super().setUp()
+        self._settings_override = override_settings(
+            USERS_JWT_PRIVATE_KEY=_generate_test_private_key_pem(),
+            USERS_JWT_KID="test-key-1",
+            USERS_JWT_ISSUER="itcommerce-users",
+            USERS_JWT_AUDIENCE="itcommerce-api",
+            USERS_JWT_ACCESS_TTL_SECONDS=900,
+            USERS_JWT_REFRESH_TTL_SECONDS=604800,
+        )
+        self._settings_override.enable()
+
+    def tearDown(self):
+        self._settings_override.disable()
+        super().tearDown()
 
 
 class RegisterValidationUnitTests(TestCase):
@@ -126,6 +162,63 @@ class RegisterModelCreationUnitTests(TestCase):
         self.assertTrue(check_password("StrongPassword123!", db_user.password_hash))
 
 
+class LoginServiceUnitTests(JwtSettingsMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def test_login_success_creates_refresh_token_and_expected_claims(self):
+        response = authenticate_user_and_issue_tokens("john@example.com", "StrongPassword123!")
+
+        self.assertIn("accessToken", response)
+        self.assertIn("refreshToken", response)
+        self.assertEqual(response["expiresIn"], 900)
+        self.assertEqual(RefreshToken.objects.count(), 1)
+        refresh = RefreshToken.objects.get()
+        self.assertEqual(refresh.user_id, self.user.id)
+        self.assertFalse(refresh.revoked)
+        self.assertIsNotNone(refresh.expires_at)
+
+        jwks = get_jwks_payload()
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwks["keys"][0]))
+        claims = jwt.decode(
+            response["accessToken"],
+            key=public_key,
+            algorithms=["RS256"],
+            audience="itcommerce-api",
+            issuer="itcommerce-users",
+        )
+        self.assertEqual(claims["sub"], str(self.user.id))
+        self.assertEqual(claims["email"], self.user.email)
+        self.assertEqual(claims["roles"], ["USER"])
+        self.assertIn("iat", claims)
+        self.assertIn("exp", claims)
+        self.assertIn("jti", claims)
+
+    def test_login_fails_with_wrong_password(self):
+        with self.assertRaisesMessage(UnauthorizedError, "Invalid email or password."):
+            authenticate_user_and_issue_tokens("john@example.com", "WrongPassword1!")
+
+    def test_jwks_contains_expected_rsa_fields(self):
+        jwks = get_jwks_payload()
+
+        self.assertIn("keys", jwks)
+        self.assertEqual(len(jwks["keys"]), 1)
+        key = jwks["keys"][0]
+        self.assertEqual(key["kty"], "RSA")
+        self.assertEqual(key["kid"], "test-key-1")
+        self.assertEqual(key["use"], "sig")
+        self.assertEqual(key["alg"], "RS256")
+        self.assertIn("n", key)
+        self.assertIn("e", key)
+
+
 class HealthEndpointTests(APITestCase):
     def test_health_success(self):
         response = self.client.get("/api/v1/health")
@@ -223,6 +316,74 @@ class RegisterEndpointIntegrationTests(APITestCase):
         self.assertEqual(data["error"], "VALIDATION_ERROR")
         self.assertEqual(data["path"], "/api/v1/users/register")
         self.assertIn("timestamp", data)
+
+
+class LoginEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def test_login_success_returns_tokens_and_persists_refresh(self):
+        payload = {"email": "john@example.com", "password": "StrongPassword123!"}
+
+        response = self.client.post("/api/v1/users/login", data=payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("accessToken", data)
+        self.assertIn("refreshToken", data)
+        self.assertEqual(data["expiresIn"], 900)
+        self.assertEqual(RefreshToken.objects.count(), 1)
+        refresh = RefreshToken.objects.get(token=data["refreshToken"])
+        self.assertEqual(refresh.user_id, self.user.id)
+        self.assertFalse(refresh.revoked)
+
+    def test_login_fails_with_wrong_password(self):
+        payload = {"email": "john@example.com", "password": "WrongPassword1!"}
+
+        response = self.client.post("/api/v1/users/login", data=payload, format="json")
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], "/api/v1/users/login")
+        self.assertIn("timestamp", data)
+
+    def test_access_token_signature_verifies_against_jwks(self):
+        login_response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, 200)
+        access_token = login_response.json()["accessToken"]
+
+        jwks_response = self.client.get("/.well-known/jwks.json")
+        self.assertEqual(jwks_response.status_code, 200)
+        jwks = jwks_response.json()
+        self.assertIn("keys", jwks)
+        self.assertEqual(len(jwks["keys"]), 1)
+        self.assertEqual(jwks["keys"][0]["kid"], "test-key-1")
+
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwks["keys"][0]))
+        claims = jwt.decode(
+            access_token,
+            key=public_key,
+            algorithms=["RS256"],
+            audience="itcommerce-api",
+            issuer="itcommerce-users",
+        )
+        self.assertEqual(claims["sub"], str(self.user.id))
+        self.assertEqual(claims["email"], "john@example.com")
+        self.assertEqual(claims["roles"], ["USER"])
+        self.assertIn("jti", claims)
 
     def test_register_invalid_phone_number_returns_400_error_shape(self):
         payload = {
