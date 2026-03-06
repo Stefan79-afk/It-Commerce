@@ -10,3 +10,5 @@ __pycache__/
 
 # Orders Service
 orders-service/node_modules
+
+AI_RULES.md
