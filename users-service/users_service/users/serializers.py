@@ -6,6 +6,9 @@ PASSWORD_RULES_MESSAGE = (
     "Password must be at least 8 characters and include uppercase, lowercase, "
     "digit, and special character."
 )
+PHONE_RULES_MESSAGE = (
+    "Phone number must be in E.164 format, for example +40123456789."
+)
 
 
 class RegisterRequestSerializer(serializers.Serializer):
@@ -34,6 +37,8 @@ class RegisterRequestSerializer(serializers.Serializer):
         cleaned = value.strip()
         if not cleaned:
             raise serializers.ValidationError("This field may not be blank.")
+        if not re.fullmatch(r"^\+[1-9]\d{7,14}$", cleaned):
+            raise serializers.ValidationError(PHONE_RULES_MESSAGE)
         return cleaned
 
     def validate_password(self, value: str) -> str:

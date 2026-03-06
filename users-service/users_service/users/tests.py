@@ -6,7 +6,11 @@ from django.db.utils import DatabaseError
 from rest_framework.test import APITestCase
 
 from .models import User
-from .serializers import PASSWORD_RULES_MESSAGE, RegisterRequestSerializer
+from .serializers import (
+    PASSWORD_RULES_MESSAGE,
+    PHONE_RULES_MESSAGE,
+    RegisterRequestSerializer,
+)
 from .services import create_user_from_register_payload
 
 
@@ -71,6 +75,32 @@ class RegisterValidationUnitTests(TestCase):
             self.assertFalse(serializer.is_valid())
             self.assertIn("password", serializer.errors)
             self.assertEqual(serializer.errors["password"][0], PASSWORD_RULES_MESSAGE)
+
+    def test_register_serializer_rejects_invalid_phone_number(self):
+        invalid_phone_numbers = [
+            "40123456789",
+            "+0123456789",
+            "+40 1234 56789",
+            "+40-1234-56789",
+            "+40(123)456789",
+            "+40abc123456",
+            "+4012",
+        ]
+
+        for phone in invalid_phone_numbers:
+            serializer = RegisterRequestSerializer(
+                data={
+                    "email": "john@example.com",
+                    "password": "StrongPassword123!",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "phoneNumber": phone,
+                }
+            )
+
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("phoneNumber", serializer.errors)
+            self.assertEqual(serializer.errors["phoneNumber"][0], PHONE_RULES_MESSAGE)
 
 
 class RegisterModelCreationUnitTests(TestCase):
@@ -183,6 +213,24 @@ class RegisterEndpointIntegrationTests(APITestCase):
             "password": "weak",
             "firstName": "John",
             "lastName": "Doe",
+        }
+
+        response = self.client.post("/api/v1/users/register", data=payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["status"], 400)
+        self.assertEqual(data["error"], "VALIDATION_ERROR")
+        self.assertEqual(data["path"], "/api/v1/users/register")
+        self.assertIn("timestamp", data)
+
+    def test_register_invalid_phone_number_returns_400_error_shape(self):
+        payload = {
+            "email": "john@example.com",
+            "password": "StrongPassword123!",
+            "firstName": "John",
+            "lastName": "Doe",
+            "phoneNumber": "12345",
         }
 
         response = self.client.post("/api/v1/users/register", data=payload, format="json")
