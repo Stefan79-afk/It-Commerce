@@ -1,4 +1,3 @@
-from django.contrib.auth.hashers import make_password
 import base64
 import secrets
 import uuid
@@ -89,33 +88,86 @@ def _build_access_token_claims(user: User, now) -> dict:
     }
 
 
-def authenticate_user_and_issue_tokens(email: str, password: str) -> dict:
-    normalized_email = email.strip().lower()
-    user = User.objects.filter(email=normalized_email).first()
-
-    if user is None or not check_password(password, user.password_hash):
-        raise UnauthorizedError("Invalid email or password.")
-
-    now = timezone.now()
-    claims = _build_access_token_claims(user, now)
-    access_token = jwt.encode(
+def _issue_access_token(user: User, now=None) -> str:
+    current_time = now or timezone.now()
+    claims = _build_access_token_claims(user, current_time)
+    return jwt.encode(
         claims,
         _load_private_key(),
         algorithm="RS256",
         headers={"kid": settings.USERS_JWT_KID},
     )
 
-    refresh_expires_at = now + timedelta(seconds=settings.USERS_JWT_REFRESH_TTL_SECONDS)
+
+def _create_refresh_token(user: User, now=None) -> RefreshToken:
+    current_time = now or timezone.now()
+    refresh_expires_at = current_time + timedelta(
+        seconds=settings.USERS_JWT_REFRESH_TTL_SECONDS
+    )
     refresh_token_value = secrets.token_urlsafe(48)
-    refresh_token = RefreshToken.objects.create(
+    return RefreshToken.objects.create(
         user=user,
         token=refresh_token_value,
         revoked=False,
         expires_at=refresh_expires_at,
     )
 
+
+def _get_active_refresh_token(refresh_token_value: str) -> RefreshToken:
+    refresh_token = (
+        RefreshToken.objects.select_related("user")
+        .filter(token=refresh_token_value)
+        .first()
+    )
+    if refresh_token is None:
+        raise UnauthorizedError("Invalid refresh token.")
+    if refresh_token.revoked:
+        raise UnauthorizedError("Refresh token has been revoked.")
+    if refresh_token.expires_at <= timezone.now():
+        raise UnauthorizedError("Refresh token has expired.")
+    return refresh_token
+
+
+def authenticate_user_and_issue_tokens(email: str, password: str) -> dict:
+    normalized_email = email.strip().lower()
+    user = User.objects.filter(email=normalized_email).first()
+    if user is None or not check_password(password, user.password_hash):
+        raise UnauthorizedError("Invalid email or password.")
+
+    now = timezone.now()
+    access_token = _issue_access_token(user, now=now)
+    refresh_token = _create_refresh_token(user, now=now)
     return {
         "accessToken": access_token,
         "refreshToken": refresh_token.token,
         "expiresIn": settings.USERS_JWT_ACCESS_TTL_SECONDS,
+    }
+
+
+def refresh_access_token(refresh_token_value: str) -> dict:
+    refresh_token = _get_active_refresh_token(refresh_token_value)
+    now = timezone.now()
+    access_token = _issue_access_token(refresh_token.user, now=now)
+    response = {
+        "accessToken": access_token,
+        "expiresIn": settings.USERS_JWT_ACCESS_TTL_SECONDS,
+    }
+
+    if settings.USERS_ROTATE_REFRESH_TOKENS:
+        with transaction.atomic():
+            refresh_token.revoked = True
+            refresh_token.save(update_fields=["revoked"])
+            new_refresh_token = _create_refresh_token(refresh_token.user, now=now)
+        response["refreshToken"] = new_refresh_token.token
+
+    return response
+
+
+def logout_with_refresh_token(refresh_token_value: str) -> dict:
+    refresh_token = _get_active_refresh_token(refresh_token_value)
+    refresh_token.revoked = True
+    refresh_token.save(update_fields=["revoked"])
+
+    return {
+        "message": "Logged out successfully.",
     }

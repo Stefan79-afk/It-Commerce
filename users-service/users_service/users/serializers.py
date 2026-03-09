@@ -82,3 +82,21 @@ class LoginResponseSerializer(serializers.Serializer):
     accessToken = serializers.CharField()
     refreshToken = serializers.CharField()
     expiresIn = serializers.IntegerField(min_value=1)
+
+
+class RefreshRequestSerializer(serializers.Serializer):
+    refreshToken = serializers.CharField(allow_blank=False, trim_whitespace=False)
+
+
+class RefreshResponseSerializer(serializers.Serializer):
+    accessToken = serializers.CharField()
+    expiresIn = serializers.IntegerField(min_value=1)
+    refreshToken = serializers.CharField(required=False)
+
+
+class LogoutRequestSerializer(serializers.Serializer):
+    refreshToken = serializers.CharField(allow_blank=False, trim_whitespace=False)
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()

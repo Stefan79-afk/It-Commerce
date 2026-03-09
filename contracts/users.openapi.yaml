@@ -93,6 +93,30 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/users/logout:
+    post:
+      tags: [Auth]
+      summary: Logout user by revoking refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/users/{userId}:
     parameters:
       - $ref: '#/components/parameters/UserId'
@@ -445,6 +469,15 @@ components:
           type: string
         expiresIn:
           type: integer
+        refreshToken:
+          type: string
+    LogoutRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
     User:
       type: object
       required:

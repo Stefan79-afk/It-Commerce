@@ -8,6 +8,10 @@ from rest_framework.response import Response
 from .serializers import (
     LoginRequestSerializer,
     LoginResponseSerializer,
+    LogoutRequestSerializer,
+    MessageResponseSerializer,
+    RefreshRequestSerializer,
+    RefreshResponseSerializer,
     RegisterRequestSerializer,
     RegisterResponseSerializer,
 )
@@ -15,6 +19,8 @@ from .services import (
     authenticate_user_and_issue_tokens,
     create_user_from_register_payload,
     get_jwks_payload,
+    logout_with_refresh_token,
+    refresh_access_token,
 )
 
 
@@ -47,6 +53,24 @@ def login(request):
 
     response_payload = authenticate_user_and_issue_tokens(**serializer.validated_data)
     return Response(LoginResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def refresh(request):
+    serializer = RefreshRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    response_payload = refresh_access_token(serializer.validated_data["refreshToken"])
+    return Response(RefreshResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def logout(request):
+    serializer = LogoutRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    response_payload = logout_with_refresh_token(serializer.validated_data["refreshToken"])
+    return Response(MessageResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])

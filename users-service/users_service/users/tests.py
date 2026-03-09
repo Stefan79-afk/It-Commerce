@@ -1,12 +1,15 @@
 import json
+from datetime import timedelta
+from unittest.mock import patch
+
 from django.contrib.auth.hashers import check_password, make_password
 from django.test import TestCase, override_settings
-from unittest.mock import patch
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.db.utils import DatabaseError
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from .exceptions import UnauthorizedError
@@ -20,6 +23,8 @@ from .services import (
     authenticate_user_and_issue_tokens,
     create_user_from_register_payload,
     get_jwks_payload,
+    logout_with_refresh_token,
+    refresh_access_token,
 )
 
 
@@ -42,6 +47,7 @@ class JwtSettingsMixin:
             USERS_JWT_AUDIENCE="itcommerce-api",
             USERS_JWT_ACCESS_TTL_SECONDS=900,
             USERS_JWT_REFRESH_TTL_SECONDS=604800,
+            USERS_ROTATE_REFRESH_TOKENS=True,
         )
         self._settings_override.enable()
 
@@ -217,6 +223,68 @@ class LoginServiceUnitTests(JwtSettingsMixin, TestCase):
         self.assertEqual(key["alg"], "RS256")
         self.assertIn("n", key)
         self.assertIn("e", key)
+
+
+class RefreshLogoutServiceUnitTests(JwtSettingsMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def _create_active_refresh_token(self) -> RefreshToken:
+        login_payload = authenticate_user_and_issue_tokens("john@example.com", "StrongPassword123!")
+        return RefreshToken.objects.get(token=login_payload["refreshToken"])
+
+    def test_refresh_happy_path_rotates_refresh_token(self):
+        old_token = self._create_active_refresh_token()
+
+        response = refresh_access_token(old_token.token)
+
+        self.assertIn("accessToken", response)
+        self.assertIn("expiresIn", response)
+        self.assertIn("refreshToken", response)
+        self.assertNotEqual(response["refreshToken"], old_token.token)
+
+        old_token.refresh_from_db()
+        self.assertTrue(old_token.revoked)
+
+        new_token = RefreshToken.objects.get(token=response["refreshToken"])
+        self.assertFalse(new_token.revoked)
+        self.assertEqual(new_token.user_id, self.user.id)
+
+    def test_refresh_revoked_token_fails(self):
+        token = self._create_active_refresh_token()
+        token.revoked = True
+        token.save(update_fields=["revoked"])
+
+        with self.assertRaisesMessage(UnauthorizedError, "Refresh token has been revoked."):
+            refresh_access_token(token.token)
+
+    def test_refresh_expired_token_fails(self):
+        token = self._create_active_refresh_token()
+        token.expires_at = timezone.now() - timedelta(seconds=1)
+        token.save(update_fields=["expires_at"])
+
+        with self.assertRaisesMessage(UnauthorizedError, "Refresh token has expired."):
+            refresh_access_token(token.token)
+
+    def test_logout_revokes_refresh_token(self):
+        token = self._create_active_refresh_token()
+
+        response = logout_with_refresh_token(token.token)
+
+        self.assertEqual(response["message"], "Logged out successfully.")
+        token.refresh_from_db()
+        self.assertTrue(token.revoked)
+
+    def test_logout_nonexistent_token_fails(self):
+        with self.assertRaisesMessage(UnauthorizedError, "Invalid refresh token."):
+            logout_with_refresh_token("does-not-exist")
 
 
 class HealthEndpointTests(APITestCase):
@@ -402,3 +470,133 @@ class LoginEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
         self.assertEqual(data["error"], "VALIDATION_ERROR")
         self.assertEqual(data["path"], "/api/v1/users/register")
         self.assertIn("timestamp", data)
+
+
+class RefreshLogoutEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def _login_and_get_refresh_token(self) -> str:
+        response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["refreshToken"]
+
+    def test_refresh_happy_path_rotates_token(self):
+        old_token = self._login_and_get_refresh_token()
+
+        response = self.client.post(
+            "/api/v1/users/refresh",
+            data={"refreshToken": old_token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("accessToken", data)
+        self.assertEqual(data["expiresIn"], 900)
+        self.assertIn("refreshToken", data)
+        self.assertNotEqual(data["refreshToken"], old_token)
+
+        old_token_row = RefreshToken.objects.get(token=old_token)
+        self.assertTrue(old_token_row.revoked)
+        new_token_row = RefreshToken.objects.get(token=data["refreshToken"])
+        self.assertFalse(new_token_row.revoked)
+
+    def test_refresh_revoked_token_returns_401(self):
+        token = self._login_and_get_refresh_token()
+        token_row = RefreshToken.objects.get(token=token)
+        token_row.revoked = True
+        token_row.save(update_fields=["revoked"])
+
+        response = self.client.post(
+            "/api/v1/users/refresh",
+            data={"refreshToken": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], "/api/v1/users/refresh")
+
+    def test_refresh_expired_token_returns_401(self):
+        token = self._login_and_get_refresh_token()
+        token_row = RefreshToken.objects.get(token=token)
+        token_row.expires_at = timezone.now() - timedelta(seconds=1)
+        token_row.save(update_fields=["expires_at"])
+
+        response = self.client.post(
+            "/api/v1/users/refresh",
+            data={"refreshToken": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], "/api/v1/users/refresh")
+
+    def test_logout_success_revokes_token(self):
+        token = self._login_and_get_refresh_token()
+
+        response = self.client.post(
+            "/api/v1/users/logout",
+            data={"refreshToken": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["message"], "Logged out successfully.")
+
+        token_row = RefreshToken.objects.get(token=token)
+        self.assertTrue(token_row.revoked)
+
+    def test_logout_revoked_token_returns_401(self):
+        token = self._login_and_get_refresh_token()
+        token_row = RefreshToken.objects.get(token=token)
+        token_row.revoked = True
+        token_row.save(update_fields=["revoked"])
+
+        response = self.client.post(
+            "/api/v1/users/logout",
+            data={"refreshToken": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], "/api/v1/users/logout")
+
+    def test_logout_expired_token_returns_401(self):
+        token = self._login_and_get_refresh_token()
+        token_row = RefreshToken.objects.get(token=token)
+        token_row.expires_at = timezone.now() - timedelta(seconds=1)
+        token_row.save(update_fields=["expires_at"])
+
+        response = self.client.post(
+            "/api/v1/users/logout",
+            data={"refreshToken": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], "/api/v1/users/logout")

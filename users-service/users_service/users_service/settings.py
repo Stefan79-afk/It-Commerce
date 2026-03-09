@@ -23,6 +23,10 @@ ENV_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(ENV_DIR / ".env")
 
 
+def _env_bool(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
@@ -143,3 +147,4 @@ USERS_JWT_ACCESS_TTL_SECONDS = int(os.getenv("USERS_JWT_ACCESS_TTL_SECONDS", "90
 USERS_JWT_REFRESH_TTL_SECONDS = int(
     os.getenv("USERS_JWT_REFRESH_TTL_SECONDS", "604800")
 )
+USERS_ROTATE_REFRESH_TOKENS = _env_bool("USERS_ROTATE_REFRESH_TOKENS", "1")
