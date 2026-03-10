@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
 
 from .exceptions import ConflictError, UnauthorizedError
 from .models import RefreshToken, User
@@ -42,7 +42,7 @@ def _base64url_uint(value: int) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def _load_private_key():
+def load_private_key():
     key_data = settings.USERS_JWT_PRIVATE_KEY.replace("\\n", "\n").strip()
     if not key_data:
         raise APIException("JWT private key is not configured.")
@@ -53,9 +53,13 @@ def _load_private_key():
         raise APIException("JWT private key is invalid.") from exc
 
 
+def load_public_key():
+    private_key = load_private_key()
+    return private_key.public_key()
+
+
 def get_jwks_payload() -> dict:
-    private_key = _load_private_key()
-    public_key = private_key.public_key()
+    public_key = load_public_key()
     if not isinstance(public_key, rsa.RSAPublicKey):
         raise APIException("JWT public key is not RSA.")
 
@@ -93,7 +97,7 @@ def _issue_access_token(user: User, now=None) -> str:
     claims = _build_access_token_claims(user, current_time)
     return jwt.encode(
         claims,
-        _load_private_key(),
+        load_private_key(),
         algorithm="RS256",
         headers={"kid": settings.USERS_JWT_KID},
     )
@@ -171,3 +175,26 @@ def logout_with_refresh_token(refresh_token_value: str) -> dict:
     return {
         "message": "Logged out successfully.",
     }
+
+
+def reset_user_password(
+    user_id,
+    email: str,
+    current_password: str,
+    new_password: str,
+) -> dict:
+    user = User.objects.filter(id=user_id).first()
+    if user is None:
+        raise NotFound("User not found.")
+
+    if user.email != email.strip().lower() or not check_password(
+        current_password, user.password_hash
+    ):
+        raise UnauthorizedError("Invalid email or current password.")
+
+    with transaction.atomic():
+        user.password_hash = make_password(new_password)
+        user.save(update_fields=["password_hash", "updated_at"])
+        RefreshToken.objects.filter(user=user, revoked=False).update(revoked=True)
+
+    return {"message": "Password updated."}

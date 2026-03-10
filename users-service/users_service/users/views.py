@@ -1,15 +1,19 @@
 from django.db import connection
 from django.db.utils import DatabaseError
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import APIException
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from .authentication import JwtAuthentication
 from .serializers import (
     LoginRequestSerializer,
     LoginResponseSerializer,
     LogoutRequestSerializer,
     MessageResponseSerializer,
+    PasswordResetRequestSerializer,
     RefreshRequestSerializer,
     RefreshResponseSerializer,
     RegisterRequestSerializer,
@@ -20,6 +24,7 @@ from .services import (
     create_user_from_register_payload,
     get_jwks_payload,
     logout_with_refresh_token,
+    reset_user_password,
     refresh_access_token,
 )
 
@@ -76,3 +81,18 @@ def logout(request):
 @api_view(["GET"])
 def jwks(request):
     return Response(get_jwks_payload(), status=status.HTTP_200_OK)
+
+
+@api_view(["PATCH"])
+@authentication_classes([JwtAuthentication])
+@permission_classes([IsAuthenticated])
+def password_reset_request(request, userId):
+    token_subject = str(request.auth.get("sub", ""))
+    if token_subject != str(userId):
+        raise PermissionDenied("You do not have permission to perform this action.")
+
+    serializer = PasswordResetRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    response_payload = reset_user_password(userId, **serializer.validated_data)
+    return Response(MessageResponseSerializer(response_payload).data, status=status.HTTP_200_OK)

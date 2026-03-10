@@ -1,8 +1,10 @@
 import json
+import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth.hashers import check_password, make_password
+from django.conf import settings
 from django.test import TestCase, override_settings
 
 import jwt
@@ -11,11 +13,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from django.db.utils import DatabaseError
 from django.utils import timezone
 from rest_framework.test import APITestCase
+from rest_framework.exceptions import NotFound
 
 from .exceptions import UnauthorizedError
 from .models import RefreshToken, User
 from .serializers import (
     PASSWORD_RULES_MESSAGE,
+    PasswordResetRequestSerializer,
     PHONE_RULES_MESSAGE,
     RegisterRequestSerializer,
 )
@@ -24,6 +28,7 @@ from .services import (
     create_user_from_register_payload,
     get_jwks_payload,
     logout_with_refresh_token,
+    reset_user_password,
     refresh_access_token,
 )
 
@@ -145,6 +150,53 @@ class RegisterValidationUnitTests(TestCase):
             self.assertEqual(serializer.errors["phoneNumber"][0], PHONE_RULES_MESSAGE)
 
 
+class PasswordResetValidationUnitTests(TestCase):
+    def test_password_reset_serializer_accepts_valid_payload(self):
+        serializer = PasswordResetRequestSerializer(
+            data={
+                "email": "  JOHN@example.COM ",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["email"], "john@example.com")
+
+    def test_password_reset_serializer_requires_fields(self):
+        serializer = PasswordResetRequestSerializer(data={})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("email", serializer.errors)
+        self.assertIn("current_password", serializer.errors)
+        self.assertIn("new_password", serializer.errors)
+
+    def test_password_reset_serializer_rejects_invalid_email(self):
+        serializer = PasswordResetRequestSerializer(
+            data={
+                "email": "not-an-email",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            }
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("email", serializer.errors)
+
+    def test_password_reset_serializer_rejects_weak_password(self):
+        serializer = PasswordResetRequestSerializer(
+            data={
+                "email": "john@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "weak",
+            }
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("new_password", serializer.errors)
+        self.assertEqual(serializer.errors["new_password"][0], PASSWORD_RULES_MESSAGE)
+
+
 class RegisterModelCreationUnitTests(TestCase):
     def test_register_service_creates_user_and_hashes_password(self):
         serializer = RegisterRequestSerializer(
@@ -166,6 +218,75 @@ class RegisterModelCreationUnitTests(TestCase):
         self.assertEqual(db_user.last_name, "Doe")
         self.assertNotEqual(db_user.password_hash, "StrongPassword123!")
         self.assertTrue(check_password("StrongPassword123!", db_user.password_hash))
+
+
+class PasswordResetServiceUnitTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def test_password_reset_updates_hash_and_revokes_active_refresh_tokens(self):
+        active_token = RefreshToken.objects.create(
+            user=self.user,
+            token="active-token",
+            revoked=False,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        revoked_token = RefreshToken.objects.create(
+            user=self.user,
+            token="revoked-token",
+            revoked=True,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+
+        response = reset_user_password(
+            self.user.id,
+            email="john@example.com",
+            current_password="StrongPassword123!",
+            new_password="NewStrongPassword123!",
+        )
+
+        self.assertEqual(response["message"], "Password updated.")
+        self.user.refresh_from_db()
+        self.assertTrue(check_password("NewStrongPassword123!", self.user.password_hash))
+        self.assertFalse(check_password("StrongPassword123!", self.user.password_hash))
+        active_token.refresh_from_db()
+        revoked_token.refresh_from_db()
+        self.assertTrue(active_token.revoked)
+        self.assertTrue(revoked_token.revoked)
+
+    def test_password_reset_rejects_wrong_current_password(self):
+        with self.assertRaisesMessage(UnauthorizedError, "Invalid email or current password."):
+            reset_user_password(
+                self.user.id,
+                email="john@example.com",
+                current_password="WrongPassword123!",
+                new_password="NewStrongPassword123!",
+            )
+
+    def test_password_reset_rejects_email_mismatch(self):
+        with self.assertRaisesMessage(UnauthorizedError, "Invalid email or current password."):
+            reset_user_password(
+                self.user.id,
+                email="other@example.com",
+                current_password="StrongPassword123!",
+                new_password="NewStrongPassword123!",
+            )
+
+    def test_password_reset_rejects_unknown_user(self):
+        with self.assertRaisesMessage(NotFound, "User not found."):
+            reset_user_password(
+                uuid.uuid4(),
+                email="john@example.com",
+                current_password="StrongPassword123!",
+                new_password="NewStrongPassword123!",
+            )
 
 
 class LoginServiceUnitTests(JwtSettingsMixin, TestCase):
@@ -600,3 +721,188 @@ class RefreshLogoutEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
         self.assertEqual(data["status"], 401)
         self.assertEqual(data["error"], "UNAUTHORIZED")
         self.assertEqual(data["path"], "/api/v1/users/logout")
+
+
+class PasswordResetEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+        self.other_user = User.objects.create(
+            email="jane@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="Jane",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def _login(self, email: str, password: str) -> dict:
+        response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": email, "password": password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    @staticmethod
+    def _auth_header(token: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _mint_access_token_for_subject(self, subject: str, email: str) -> str:
+        now = int(timezone.now().timestamp())
+        payload = {
+            "iss": settings.USERS_JWT_ISSUER,
+            "aud": settings.USERS_JWT_AUDIENCE,
+            "sub": str(subject),
+            "email": email,
+            "roles": ["USER"],
+            "iat": now,
+            "exp": now + settings.USERS_JWT_ACCESS_TTL_SECONDS,
+            "jti": str(uuid.uuid4()),
+        }
+        private_key = settings.USERS_JWT_PRIVATE_KEY.replace("\\n", "\n")
+        return jwt.encode(
+            payload,
+            private_key,
+            algorithm="RS256",
+            headers={"kid": settings.USERS_JWT_KID},
+        )
+
+    def test_password_reset_happy_path_updates_password_and_revokes_refresh_tokens(self):
+        login_data = self._login("john@example.com", "StrongPassword123!")
+        access_token = login_data["accessToken"]
+        old_refresh_token = login_data["refreshToken"]
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/password/reset-request",
+            data={
+                "email": "john@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            },
+            format="json",
+            **self._auth_header(access_token),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"message": "Password updated."})
+
+        old_login_response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(old_login_response.status_code, 401)
+
+        new_login_response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "NewStrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(new_login_response.status_code, 200)
+
+        refresh_response = self.client.post(
+            "/api/v1/users/refresh",
+            data={"refreshToken": old_refresh_token},
+            format="json",
+        )
+        self.assertEqual(refresh_response.status_code, 401)
+
+    def test_password_reset_without_token_returns_401(self):
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/password/reset-request",
+            data={
+                "email": "john@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], f"/api/v1/users/{self.user.id}/password/reset-request")
+        self.assertIn("timestamp", data)
+
+    def test_password_reset_with_invalid_token_returns_401(self):
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/password/reset-request",
+            data={
+                "email": "john@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            },
+            format="json",
+            **self._auth_header("not-a-jwt"),
+        )
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["status"], 401)
+        self.assertEqual(data["error"], "UNAUTHORIZED")
+        self.assertEqual(data["path"], f"/api/v1/users/{self.user.id}/password/reset-request")
+
+    def test_password_reset_subject_mismatch_returns_403(self):
+        other_login_data = self._login("jane@example.com", "StrongPassword123!")
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/password/reset-request",
+            data={
+                "email": "john@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            },
+            format="json",
+            **self._auth_header(other_login_data["accessToken"]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        data = response.json()
+        self.assertEqual(data["status"], 403)
+        self.assertEqual(data["error"], "FORBIDDEN")
+        self.assertEqual(data["path"], f"/api/v1/users/{self.user.id}/password/reset-request")
+
+    def test_password_reset_invalid_payload_returns_400(self):
+        login_data = self._login("john@example.com", "StrongPassword123!")
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/password/reset-request",
+            data={"email": "invalid", "current_password": "StrongPassword123!", "new_password": "weak"},
+            format="json",
+            **self._auth_header(login_data["accessToken"]),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["status"], 400)
+        self.assertEqual(data["error"], "VALIDATION_ERROR")
+        self.assertEqual(data["path"], f"/api/v1/users/{self.user.id}/password/reset-request")
+
+    def test_password_reset_unknown_user_returns_404(self):
+        missing_user_id = str(uuid.uuid4())
+        token = self._mint_access_token_for_subject(missing_user_id, "ghost@example.com")
+
+        response = self.client.patch(
+            f"/api/v1/users/{missing_user_id}/password/reset-request",
+            data={
+                "email": "ghost@example.com",
+                "current_password": "StrongPassword123!",
+                "new_password": "NewStrongPassword123!",
+            },
+            format="json",
+            **self._auth_header(token),
+        )
+
+        self.assertEqual(response.status_code, 404)
+        data = response.json()
+        self.assertEqual(data["status"], 404)
+        self.assertEqual(data["error"], "RESOURCE_NOT_FOUND")
+        self.assertEqual(data["path"], f"/api/v1/users/{missing_user_id}/password/reset-request")

@@ -11,6 +11,20 @@ PHONE_RULES_MESSAGE = (
 )
 
 
+def validate_strong_password(value: str) -> str:
+    if len(value) < 8:
+        raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
+    if not re.search(r"[A-Z]", value):
+        raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
+    if not re.search(r"[a-z]", value):
+        raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
+    if not re.search(r"\d", value):
+        raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
+    if not re.search(r"[^A-Za-z0-9]", value):
+        raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
+    return value
+
+
 class RegisterRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, trim_whitespace=False)
@@ -42,17 +56,7 @@ class RegisterRequestSerializer(serializers.Serializer):
         return cleaned
 
     def validate_password(self, value: str) -> str:
-        if len(value) < 8:
-            raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
-        if not re.search(r"[A-Z]", value):
-            raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
-        if not re.search(r"[a-z]", value):
-            raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
-        if not re.search(r"\d", value):
-            raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
-        if not re.search(r"[^A-Za-z0-9]", value):
-            raise serializers.ValidationError(PASSWORD_RULES_MESSAGE)
-        return value
+        return validate_strong_password(value)
 
 
 class RegisterResponseSerializer(serializers.Serializer):
@@ -100,3 +104,19 @@ class LogoutRequestSerializer(serializers.Serializer):
 
 class MessageResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    current_password = serializers.CharField(
+        write_only=True, trim_whitespace=False, allow_blank=False
+    )
+    new_password = serializers.CharField(
+        write_only=True, trim_whitespace=False, allow_blank=False
+    )
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+    def validate_new_password(self, value: str) -> str:
+        return validate_strong_password(value)

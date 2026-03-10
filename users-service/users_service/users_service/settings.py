@@ -137,6 +137,9 @@ STATIC_URL = 'static/'
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "users.exception_handlers.standard_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "users.authentication.JwtAuthentication",
+    ],
 }
 
 USERS_JWT_PRIVATE_KEY = os.getenv("USERS_JWT_PRIVATE_KEY", "")

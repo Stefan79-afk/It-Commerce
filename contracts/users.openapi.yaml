@@ -204,6 +204,8 @@ paths:
           description: Password updated
           content:
             application/json:
+              example:
+                message: Password updated.
               schema:
                 $ref: '#/components/schemas/MessageResponse'
         '400':
