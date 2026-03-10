@@ -13,7 +13,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound
 
 from .exceptions import ConflictError, UnauthorizedError
-from .models import RefreshToken, User
+from .models import Address, RefreshToken, User
 
 
 def create_user_from_register_payload(validated_data: dict) -> User:
@@ -198,3 +198,105 @@ def reset_user_password(
         RefreshToken.objects.filter(user=user, revoked=False).update(revoked=True)
 
     return {"message": "Password updated."}
+
+
+def get_user_or_404(user_id) -> User:
+    user = User.objects.filter(id=user_id).first()
+    if user is None:
+        raise NotFound("User not found.")
+    return user
+
+
+def update_user_profile(user_id, updates: dict) -> User:
+    user = get_user_or_404(user_id)
+
+    if "firstName" in updates:
+        user.first_name = updates["firstName"]
+    if "lastName" in updates:
+        user.last_name = updates["lastName"]
+    if "phoneNumber" in updates:
+        user.phone_number = updates["phoneNumber"]
+
+    if updates:
+        user.save(update_fields=["first_name", "last_name", "phone_number", "updated_at"])
+    return user
+
+
+def delete_user_profile(user_id) -> None:
+    user = get_user_or_404(user_id)
+    user.delete()
+
+
+def list_user_addresses(user_id, page: int, size: int) -> dict:
+    get_user_or_404(user_id)
+
+    queryset = Address.objects.filter(user_id=user_id).order_by("-created_at")
+    total_elements = queryset.count()
+    total_pages = (total_elements + size - 1) // size if total_elements else 0
+    offset = page * size
+    addresses = list(queryset[offset : offset + size])
+
+    return {
+        "content": addresses,
+        "page": page,
+        "size": size,
+        "totalElements": total_elements,
+        "totalPages": total_pages,
+    }
+
+
+def create_user_address(user_id, payload: dict) -> Address:
+    user = get_user_or_404(user_id)
+    return Address.objects.create(
+        user=user,
+        street=payload["street"],
+        postal_code=payload.get("postalCode"),
+        city=payload["city"],
+        county=payload.get("county"),
+        country=payload["country"],
+        is_default=payload.get("isDefault", False),
+    )
+
+
+def get_user_address_or_404(user_id, address_id) -> Address:
+    get_user_or_404(user_id)
+    address = Address.objects.filter(id=address_id, user_id=user_id).first()
+    if address is None:
+        raise NotFound("Address not found.")
+    return address
+
+
+def update_user_address(user_id, address_id, updates: dict) -> Address:
+    address = get_user_address_or_404(user_id, address_id)
+
+    if "street" in updates:
+        address.street = updates["street"]
+    if "postalCode" in updates:
+        address.postal_code = updates["postalCode"]
+    if "city" in updates:
+        address.city = updates["city"]
+    if "county" in updates:
+        address.county = updates["county"]
+    if "country" in updates:
+        address.country = updates["country"]
+    if "isDefault" in updates:
+        address.is_default = updates["isDefault"]
+
+    if updates:
+        address.save(
+            update_fields=[
+                "street",
+                "postal_code",
+                "city",
+                "county",
+                "country",
+                "is_default",
+                "updated_at",
+            ]
+        )
+    return address
+
+
+def delete_user_address(user_id, address_id) -> None:
+    address = get_user_address_or_404(user_id, address_id)
+    address.delete()

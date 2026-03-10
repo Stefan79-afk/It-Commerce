@@ -16,7 +16,7 @@ from rest_framework.test import APITestCase
 from rest_framework.exceptions import NotFound
 
 from .exceptions import UnauthorizedError
-from .models import RefreshToken, User
+from .models import Address, RefreshToken, User
 from .serializers import (
     PASSWORD_RULES_MESSAGE,
     PasswordResetRequestSerializer,
@@ -906,3 +906,163 @@ class PasswordResetEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
         self.assertEqual(data["status"], 404)
         self.assertEqual(data["error"], "RESOURCE_NOT_FOUND")
         self.assertEqual(data["path"], f"/api/v1/users/{missing_user_id}/password/reset-request")
+
+
+class UserProfileAndAddressesIntegrationTests(JwtSettingsMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            phone_number="+40123456789",
+            role="USER",
+        )
+        self.other_user = User.objects.create(
+            email="jane@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="Jane",
+            last_name="Doe",
+            role="USER",
+        )
+
+    @staticmethod
+    def _auth_header(token: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _login(self, email: str, password: str) -> dict:
+        response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": email, "password": password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_user_profile_get_patch_delete_happy_path(self):
+        token = self._login("john@example.com", "StrongPassword123!")["accessToken"]
+
+        get_response = self.client.get(
+            f"/api/v1/users/{self.user.id}",
+            **self._auth_header(token),
+        )
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.json()["email"], "john@example.com")
+        self.assertEqual(get_response.json()["firstName"], "John")
+
+        patch_response = self.client.patch(
+            f"/api/v1/users/{self.user.id}",
+            data={"firstName": "Johnny", "phoneNumber": "+40111222333"},
+            format="json",
+            **self._auth_header(token),
+        )
+        self.assertEqual(patch_response.status_code, 200)
+        patch_payload = patch_response.json()
+        self.assertEqual(patch_payload["firstName"], "Johnny")
+        self.assertEqual(patch_payload["phoneNumber"], "+40111222333")
+
+        delete_response = self.client.delete(
+            f"/api/v1/users/{self.user.id}",
+            **self._auth_header(token),
+        )
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(User.objects.filter(id=self.user.id).exists())
+
+    def test_user_profile_without_token_returns_401(self):
+        response = self.client.get(f"/api/v1/users/{self.user.id}")
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload["status"], 401)
+        self.assertEqual(payload["error"], "UNAUTHORIZED")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}")
+
+    def test_addresses_without_token_returns_401(self):
+        response = self.client.get(f"/api/v1/users/{self.user.id}/addresses")
+
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload["status"], 401)
+        self.assertEqual(payload["error"], "UNAUTHORIZED")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}/addresses")
+
+    def test_user_profile_cross_user_access_returns_403(self):
+        other_token = self._login("jane@example.com", "StrongPassword123!")["accessToken"]
+        response = self.client.get(
+            f"/api/v1/users/{self.user.id}",
+            **self._auth_header(other_token),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertEqual(payload["status"], 403)
+        self.assertEqual(payload["error"], "FORBIDDEN")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}")
+
+    def test_addresses_cross_user_access_returns_403(self):
+        other_token = self._login("jane@example.com", "StrongPassword123!")["accessToken"]
+        response = self.client.get(
+            f"/api/v1/users/{self.user.id}/addresses",
+            **self._auth_header(other_token),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertEqual(payload["status"], 403)
+        self.assertEqual(payload["error"], "FORBIDDEN")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}/addresses")
+
+    def test_addresses_create_list_update_delete(self):
+        token = self._login("john@example.com", "StrongPassword123!")["accessToken"]
+
+        create_response = self.client.post(
+            f"/api/v1/users/{self.user.id}/addresses",
+            data={
+                "street": "Main Street 12",
+                "postalCode": "300123",
+                "city": "Timisoara",
+                "county": "Timis",
+                "country": "Romania",
+                "isDefault": True,
+            },
+            format="json",
+            **self._auth_header(token),
+        )
+        self.assertEqual(create_response.status_code, 201)
+        created = create_response.json()
+        self.assertEqual(created["street"], "Main Street 12")
+        self.assertEqual(created["postalCode"], "300123")
+        self.assertEqual(created["isDefault"], True)
+        address_id = created["id"]
+
+        list_response = self.client.get(
+            f"/api/v1/users/{self.user.id}/addresses?page=0&size=20",
+            **self._auth_header(token),
+        )
+        self.assertEqual(list_response.status_code, 200)
+        listed = list_response.json()
+        self.assertEqual(listed["page"], 0)
+        self.assertEqual(listed["size"], 20)
+        self.assertEqual(listed["totalElements"], 1)
+        self.assertEqual(listed["totalPages"], 1)
+        self.assertEqual(len(listed["content"]), 1)
+        self.assertEqual(listed["content"][0]["id"], address_id)
+
+        update_response = self.client.patch(
+            f"/api/v1/users/{self.user.id}/addresses/{address_id}",
+            data={"street": "Updated Street 99", "isDefault": False},
+            format="json",
+            **self._auth_header(token),
+        )
+        self.assertEqual(update_response.status_code, 200)
+        updated = update_response.json()
+        self.assertEqual(updated["street"], "Updated Street 99")
+        self.assertEqual(updated["isDefault"], False)
+
+        delete_response = self.client.delete(
+            f"/api/v1/users/{self.user.id}/addresses/{address_id}",
+            **self._auth_header(token),
+        )
+        self.assertEqual(delete_response.status_code, 204)
+        self.assertFalse(Address.objects.filter(id=address_id).exists())
