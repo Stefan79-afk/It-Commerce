@@ -209,16 +209,28 @@ def get_user_or_404(user_id) -> User:
 
 def update_user_profile(user_id, updates: dict) -> User:
     user = get_user_or_404(user_id)
+    update_fields = []
 
+    if "email" in updates:
+        user.email = updates["email"]
+        update_fields.append("email")
     if "firstName" in updates:
         user.first_name = updates["firstName"]
+        update_fields.append("first_name")
     if "lastName" in updates:
         user.last_name = updates["lastName"]
+        update_fields.append("last_name")
     if "phoneNumber" in updates:
         user.phone_number = updates["phoneNumber"]
+        update_fields.append("phone_number")
 
-    if updates:
-        user.save(update_fields=["first_name", "last_name", "phone_number", "updated_at"])
+    if update_fields:
+        try:
+            user.save(update_fields=[*update_fields, "updated_at"])
+        except IntegrityError as exc:
+            if "users_email_key" in str(exc) or "unique" in str(exc).lower():
+                raise ConflictError("A user with this email already exists.") from exc
+            raise
     return user
 
 

@@ -969,6 +969,55 @@ class UserProfileAndAddressesIntegrationTests(JwtSettingsMixin, APITestCase):
         self.assertEqual(delete_response.status_code, 204)
         self.assertFalse(User.objects.filter(id=self.user.id).exists())
 
+    def test_user_profile_patch_updates_email_and_normalizes(self):
+        token = self._login("john@example.com", "StrongPassword123!")["accessToken"]
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}",
+            data={"email": "NEW.Email@Example.COM"},
+            format="json",
+            **self._auth_header(token),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["email"], "new.email@example.com")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "new.email@example.com")
+
+    def test_user_profile_patch_invalid_email_returns_400(self):
+        token = self._login("john@example.com", "StrongPassword123!")["accessToken"]
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}",
+            data={"email": "invalid-email"},
+            format="json",
+            **self._auth_header(token),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertEqual(payload["status"], 400)
+        self.assertEqual(payload["error"], "VALIDATION_ERROR")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}")
+
+    def test_user_profile_patch_duplicate_email_returns_409(self):
+        token = self._login("john@example.com", "StrongPassword123!")["accessToken"]
+
+        response = self.client.patch(
+            f"/api/v1/users/{self.user.id}",
+            data={"email": "JANE@example.com"},
+            format="json",
+            **self._auth_header(token),
+        )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertEqual(payload["status"], 409)
+        self.assertEqual(payload["error"], "CONFLICT")
+        self.assertEqual(payload["path"], f"/api/v1/users/{self.user.id}")
+
     def test_user_profile_without_token_returns_401(self):
         response = self.client.get(f"/api/v1/users/{self.user.id}")
 

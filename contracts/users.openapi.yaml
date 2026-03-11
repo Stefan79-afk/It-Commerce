@@ -160,6 +160,8 @@ paths:
                 $ref: '#/components/schemas/User'
         '400':
           $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -510,6 +512,9 @@ components:
     UpdateUserRequest:
       type: object
       properties:
+        email:
+          type: string
+          format: email
         firstName:
           type: string
         lastName:

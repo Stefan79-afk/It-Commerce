@@ -141,11 +141,15 @@ class UserSerializer(serializers.Serializer):
 
 
 class UpdateUserRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
     firstName = serializers.CharField(required=False, allow_blank=False)
     lastName = serializers.CharField(required=False, allow_blank=False)
     phoneNumber = serializers.CharField(
         required=False, allow_blank=False, allow_null=True
     )
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
 
     def validate_firstName(self, value: str) -> str:
         cleaned = value.strip()
