@@ -23,6 +23,10 @@ ENV_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(ENV_DIR / ".env")
 
 
+def _env_bool(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
@@ -53,6 +57,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'users.middleware.ApiErrorMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -129,3 +134,20 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "users.exception_handlers.standard_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "users.authentication.JwtAuthentication",
+    ],
+}
+
+USERS_JWT_PRIVATE_KEY = os.getenv("USERS_JWT_PRIVATE_KEY", "")
+USERS_JWT_KID = os.getenv("USERS_JWT_KID", "users-key-1")
+USERS_JWT_ISSUER = os.getenv("USERS_JWT_ISSUER", "itcommerce-users")
+USERS_JWT_AUDIENCE = os.getenv("USERS_JWT_AUDIENCE", "itcommerce-api")
+USERS_JWT_ACCESS_TTL_SECONDS = int(os.getenv("USERS_JWT_ACCESS_TTL_SECONDS", "900"))
+USERS_JWT_REFRESH_TTL_SECONDS = int(
+    os.getenv("USERS_JWT_REFRESH_TTL_SECONDS", "604800")
+)
+USERS_ROTATE_REFRESH_TOKENS = _env_bool("USERS_ROTATE_REFRESH_TOKENS", "1")

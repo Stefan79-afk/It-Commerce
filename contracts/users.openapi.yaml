@@ -93,6 +93,30 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/users/logout:
+    post:
+      tags: [Auth]
+      summary: Logout user by revoking refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/users/{userId}:
     parameters:
       - $ref: '#/components/parameters/UserId'
@@ -136,6 +160,8 @@ paths:
                 $ref: '#/components/schemas/User'
         '400':
           $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -180,6 +206,8 @@ paths:
           description: Password updated
           content:
             application/json:
+              example:
+                message: Password updated.
               schema:
                 $ref: '#/components/schemas/MessageResponse'
         '400':
@@ -297,7 +325,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /api/v1/.well-known/jwks.json:
+  /.well-known/jwks.json:
     get:
       tags: [Auth]
       summary: Public JWKS endpoint
@@ -445,6 +473,15 @@ components:
           type: string
         expiresIn:
           type: integer
+        refreshToken:
+          type: string
+    LogoutRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
     User:
       type: object
       required:
@@ -475,6 +512,9 @@ components:
     UpdateUserRequest:
       type: object
       properties:
+        email:
+          type: string
+          format: email
         firstName:
           type: string
         lastName:
