@@ -70,4 +70,16 @@ class ProductsServiceApplicationTests {
 			.andExpect(jsonPath("$.timestamp").isNotEmpty());
 	}
 
+	@Test
+	void protectedEndpointReturnsUnauthorizedWithoutJwt() throws Exception {
+		this.mockMvc
+			.perform(get("/api/v1/products/wishlists/3fa85f64-5717-4562-b3fc-2c963f66afa6"))
+			.andExpect(status().isUnauthorized())
+			.andExpect(jsonPath("$.status").value(401))
+			.andExpect(jsonPath("$.error").value("UNAUTHORIZED"))
+			.andExpect(jsonPath("$.message").value("Authentication credentials were not provided or are invalid."))
+			.andExpect(jsonPath("$.path").value("/api/v1/products/wishlists/3fa85f64-5717-4562-b3fc-2c963f66afa6"))
+			.andExpect(jsonPath("$.timestamp").isNotEmpty());
+	}
+
 }
