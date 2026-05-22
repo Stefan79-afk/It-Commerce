@@ -202,3 +202,83 @@ describe("GET /api/v1/orders/:orderId", () => {
         expect(res.status).toBe(401);
     });
 });
+
+describe("PATCH /api/v1/orders/:orderId", () => {
+    test("user cancels CREATED order → 200 with status CANCELLED", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "CREATED" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "CANCELLED" });
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe("CANCELLED");
+        expect(res.body.items).toBeDefined();
+        expect(res.body.shippingAddressSnapshot).toBeDefined();
+    });
+
+    test("user cancels PROCESSING order → 200", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "PROCESSING" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "CANCELLED" });
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe("CANCELLED");
+    });
+
+    test("user cannot cancel SHIPPED order → 400", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "SHIPPED" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "CANCELLED" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("VALIDATION_ERROR");
+    });
+
+    test("non-admin cannot set status to SHIPPED → 403", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "CREATED" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "SHIPPED" });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe("FORBIDDEN");
+    });
+
+    test("admin can set status to any valid value → 200", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "CREATED" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("admin-uuid", ["ADMIN"])}`)
+            .send({ status: "SHIPPED" });
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe("SHIPPED");
+    });
+
+    test("non-owner cannot patch order → 403", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("other-user")}`)
+            .send({ status: "CANCELLED" });
+        expect(res.status).toBe(403);
+    });
+
+    test("invalid status value → 400", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1" });
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "INVALID" });
+        expect(res.status).toBe(400);
+    });
+
+    test("non-existent orderId → 404", async () => {
+        const res = await request(app)
+            .patch("/api/v1/orders/does-not-exist")
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "CANCELLED" });
+        expect(res.status).toBe(404);
+    });
+});

@@ -4,6 +4,9 @@ import authenticate from "../middleware/authenticate.js";
 
 const router = express.Router();
 
+const CANCELLABLE    = new Set(["CREATED", "PROCESSING"]);
+const ORDER_STATUSES = ["CREATED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"];
+
 function toSummary(o) {
     return { id: o._id, userId: o.userId, status: o.status,
              totalPrice: o.totalPrice, createdAt: o.createdAt };
@@ -81,6 +84,51 @@ router.get("/orders/:orderId", authenticate, async (req, res, next) => {
         }
 
         res.json(toOrder(order));
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.patch("/orders/:orderId", authenticate, async (req, res, next) => {
+    try {
+        const { status } = req.body;
+
+        if (!status || !ORDER_STATUSES.includes(status)) {
+            return next(Object.assign(
+                new Error(`status must be one of: ${ORDER_STATUSES.join(", ")}`),
+                { status: 400 }
+            ));
+        }
+
+        const order = await Order.findById(req.params.orderId);
+
+        if (!order) {
+            return next(Object.assign(new Error("Order not found"), { status: 404 }));
+        }
+
+        const isOwner = order.userId === req.user.userId;
+        const isAdmin = req.user.roles.includes("ADMIN");
+
+        if (!isOwner && !isAdmin) {
+            return next(Object.assign(new Error("Access denied"), { status: 403 }));
+        }
+
+        if (!isAdmin) {
+            if (status !== "CANCELLED") {
+                return next(Object.assign(new Error("Customers may only cancel orders"), { status: 403 }));
+            }
+            if (!CANCELLABLE.has(order.status)) {
+                return next(Object.assign(
+                    new Error(`Cannot cancel an order with status ${order.status}`),
+                    { status: 400 }
+                ));
+            }
+        }
+
+        order.status = status;
+        await order.save();
+
+        res.json(toOrder(order.toObject()));
     } catch (err) {
         next(err);
     }
