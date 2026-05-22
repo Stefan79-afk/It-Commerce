@@ -4,6 +4,16 @@ import authenticate from "../middleware/authenticate.js";
 
 const router = express.Router();
 
+function toSummary(o) {
+    return { id: o._id, userId: o.userId, status: o.status,
+             totalPrice: o.totalPrice, createdAt: o.createdAt };
+}
+
+function toOrder(o) {
+    return { ...toSummary(o), shippingAddressSnapshot: o.shippingAddressSnapshot,
+             items: o.items, updatedAt: o.updatedAt };
+}
+
 router.post("/orders", authenticate, async (req, res, next) => {
     try {
         const { shippingAddressId, shippingAddressSnapshot, items } = req.body;
@@ -23,17 +33,55 @@ router.post("/orders", authenticate, async (req, res, next) => {
             totalPrice,
         });
 
-        res.status(201).json({
-            id:         order._id,
-            userId:     order.userId,
-            status:     order.status,
-            totalPrice: order.totalPrice,
-            createdAt:  order.createdAt,
-        });
+        res.status(201).json(toSummary(order));
     } catch (err) {
         if (err.name === "ValidationError") {
             return next(Object.assign(new Error(err.message), { status: 400 }));
         }
+        next(err);
+    }
+});
+
+router.get("/orders", authenticate, async (req, res, next) => {
+    try {
+        const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
+        const size = Math.max(1, parseInt(req.query.size ?? "20", 10) || 20);
+        const userId = req.user.userId;
+
+        const [docs, totalElements] = await Promise.all([
+            Order.find({ userId }).sort({ createdAt: -1 }).skip(page * size).limit(size).lean(),
+            Order.countDocuments({ userId }),
+        ]);
+
+        res.json({
+            content:      docs.map(toSummary),
+            page,
+            size,
+            totalElements,
+            totalPages:   Math.ceil(totalElements / size) || 0,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.get("/orders/:orderId", authenticate, async (req, res, next) => {
+    try {
+        const order = await Order.findById(req.params.orderId).lean();
+
+        if (!order) {
+            return next(Object.assign(new Error("Order not found"), { status: 404 }));
+        }
+
+        const isOwner = order.userId === req.user.userId;
+        const isAdmin = req.user.roles.includes("ADMIN");
+
+        if (!isOwner && !isAdmin) {
+            return next(Object.assign(new Error("Access denied"), { status: 403 }));
+        }
+
+        res.json(toOrder(order));
+    } catch (err) {
         next(err);
     }
 });

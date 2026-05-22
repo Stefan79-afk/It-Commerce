@@ -2,6 +2,7 @@ import { jest } from "@jest/globals";
 import { generateKeyPairSync } from "node:crypto";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
+import Order from "../src/models/Order.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" });
@@ -33,10 +34,10 @@ afterEach(async () => {
     await mongoose.connection.collection("orders").deleteMany({});
 });
 
-function signToken(sub = "user-uuid-1") {
+function signToken(sub = "user-uuid-1", roles = ["USER"]) {
     return jwt.sign(
         { iss: "itcommerce-users", aud: "itcommerce-api", sub,
-          email: "test@example.com", roles: ["USER"], jti: "jti-1" },
+          email: "test@example.com", roles, jti: "jti-1" },
         { key: privateKeyPem },
         { algorithm: "RS256", expiresIn: "10m" }
     );
@@ -48,6 +49,13 @@ const validBody = {
     items: [
         { productId: "prod-uuid-1", productName: "RTX 4080", priceAtPurchase: 999.99, quantity: 2 },
     ],
+};
+
+const orderBase = {
+    shippingAddressId:       "addr-uuid-1",
+    shippingAddressSnapshot: { street: "Main St 1", city: "Timisoara", country: "Romania" },
+    items: [{ productId: "prod-uuid-1", productName: "RTX 4080", priceAtPurchase: 999.99, quantity: 1 }],
+    totalPrice: 999.99,
 };
 
 describe("POST /api/v1/orders", () => {
@@ -100,5 +108,97 @@ describe("POST /api/v1/orders", () => {
             .send({ ...validBody, shippingAddressSnapshot: { street: "Only Street" } });
 
         expect(res.status).toBe(400);
+    });
+});
+
+describe("GET /api/v1/orders", () => {
+    test("returns only the authenticated user's orders", async () => {
+        await Order.create([
+            { ...orderBase, userId: "user-A" },
+            { ...orderBase, userId: "user-A" },
+            { ...orderBase, userId: "user-B" },
+        ]);
+        const res = await request(app)
+            .get("/api/v1/orders")
+            .set("Authorization", `Bearer ${signToken("user-A")}`);
+        expect(res.status).toBe(200);
+        expect(res.body.content).toHaveLength(2);
+        expect(res.body.content.every(o => o.userId === "user-A")).toBe(true);
+        expect(res.body.totalElements).toBe(2);
+        expect(res.body.totalPages).toBe(1);
+    });
+
+    test("paginates results with page and size params", async () => {
+        await Order.create(
+            Array.from({ length: 3 }, () => ({ ...orderBase, userId: "user-uuid-1" }))
+        );
+        const res = await request(app)
+            .get("/api/v1/orders?page=0&size=2")
+            .set("Authorization", `Bearer ${signToken()}`);
+        expect(res.status).toBe(200);
+        expect(res.body.content).toHaveLength(2);
+        expect(res.body.page).toBe(0);
+        expect(res.body.size).toBe(2);
+        expect(res.body.totalElements).toBe(3);
+        expect(res.body.totalPages).toBe(2);
+    });
+
+    test("returns empty list when user has no orders", async () => {
+        const res = await request(app)
+            .get("/api/v1/orders")
+            .set("Authorization", `Bearer ${signToken("no-orders-user")}`);
+        expect(res.status).toBe(200);
+        expect(res.body.content).toHaveLength(0);
+        expect(res.body.totalElements).toBe(0);
+    });
+
+    test("rejects missing token → 401", async () => {
+        const res = await request(app).get("/api/v1/orders");
+        expect(res.status).toBe(401);
+    });
+});
+
+describe("GET /api/v1/orders/:orderId", () => {
+    test("owner fetches their own order with full details", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1" });
+        const res = await request(app)
+            .get(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("user-uuid-1")}`);
+        expect(res.status).toBe(200);
+        expect(res.body.id).toBe(order._id);
+        expect(res.body.shippingAddressSnapshot).toBeDefined();
+        expect(res.body.items).toHaveLength(1);
+        expect(res.body.updatedAt).toBeDefined();
+    });
+
+    test("non-owner gets 403 Forbidden", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1" });
+        const res = await request(app)
+            .get(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("other-user")}`);
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe("FORBIDDEN");
+    });
+
+    test("admin role bypasses ownership check", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1" });
+        const res = await request(app)
+            .get(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("admin-uuid", ["ADMIN"])}`);
+        expect(res.status).toBe(200);
+        expect(res.body.id).toBe(order._id);
+    });
+
+    test("non-existent orderId → 404", async () => {
+        const res = await request(app)
+            .get("/api/v1/orders/does-not-exist")
+            .set("Authorization", `Bearer ${signToken()}`);
+        expect(res.status).toBe(404);
+        expect(res.body.error).toBe("RESOURCE_NOT_FOUND");
+    });
+
+    test("rejects missing token → 401", async () => {
+        const res = await request(app).get("/api/v1/orders/some-id");
+        expect(res.status).toBe(401);
     });
 });
