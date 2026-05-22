@@ -99,8 +99,7 @@ services:
     ports:
       - "3001:3000"
     volumes:
-      - ./orders-service:/app
-      - /app/node_modules   # keeps container node_modules from being overwritten by bind mount
+      - ./orders-service/src:/app/src
     command: npm run dev
 
   nginx:
