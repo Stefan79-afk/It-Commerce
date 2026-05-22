@@ -8,23 +8,31 @@ import { ProductList } from './pages/ProductList';
 import { ProductDetail } from './pages/ProductDetail';
 import { CreateProduct } from './pages/CreateProduct';
 import { Wishlist } from './pages/Wishlist';
+import { Cart } from './pages/Cart';
+import { Checkout } from './pages/Checkout';
+import { OrderList } from './pages/OrderList';
+import { OrderDetail } from './pages/OrderDetail';
 
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          {/* Public routes */}
+          {/* Public */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/products" element={<ProductList />} />
           <Route path="/products/:productId" element={<ProductDetail />} />
+          <Route path="/cart" element={<Cart />} />
 
-          {/* Protected routes — ProtectedRoute uses <Outlet /> */}
+          {/* Protected — ProtectedRoute renders <Outlet /> */}
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Home />} />
             <Route path="/products/create" element={<CreateProduct />} />
             <Route path="/wishlist" element={<Wishlist />} />
+            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/orders" element={<OrderList />} />
+            <Route path="/orders/:orderId" element={<OrderDetail />} />
           </Route>
         </Routes>
       </AuthProvider>

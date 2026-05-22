@@ -12,6 +12,7 @@ beforeEach(() => {
   vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
     loggedIn: false,
     loading: false,
+    userId: null,
     login: mockLogin,
     logout: vi.fn(),
   });

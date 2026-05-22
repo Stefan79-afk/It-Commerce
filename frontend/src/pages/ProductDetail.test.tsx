@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductDetail } from './ProductDetail';
 import * as api from '../lib/api';
 import * as AuthContext from '../contexts/AuthContext';
+import * as CartContext from '../contexts/CartContext';
 
 const MOCK_PRODUCT = {
   id: 'p1',
@@ -41,6 +42,10 @@ function renderDetail(loggedIn = false, userId: string | null = null) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(CartContext, 'useCart').mockReturnValue({
+    items: [], addItem: vi.fn(), removeItem: vi.fn(), updateQuantity: vi.fn(),
+    clearCart: vi.fn(), totalItems: 0, totalPrice: 0,
+  });
 });
 
 describe('ProductDetail', () => {

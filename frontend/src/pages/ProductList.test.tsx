@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductList } from './ProductList';
 import * as api from '../lib/api';
 import * as AuthContext from '../contexts/AuthContext';
+import * as CartContext from '../contexts/CartContext';
 
 const MOCK_PAGE = {
   content: [
@@ -22,11 +23,11 @@ const MOCK_PAGE_MULTI = { ...MOCK_PAGE, totalPages: 3, totalElements: 60 };
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
-    loggedIn: false,
-    loading: false,
-    userId: null,
-    login: vi.fn(),
-    logout: vi.fn(),
+    loggedIn: false, loading: false, userId: null, login: vi.fn(), logout: vi.fn(),
+  });
+  vi.spyOn(CartContext, 'useCart').mockReturnValue({
+    items: [], addItem: vi.fn(), removeItem: vi.fn(), updateQuantity: vi.fn(),
+    clearCart: vi.fn(), totalItems: 0, totalPrice: 0,
   });
 });
 

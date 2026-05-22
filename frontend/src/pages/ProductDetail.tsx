@@ -3,17 +3,20 @@ import { useParams, Link } from 'react-router-dom';
 import { NavBar } from '../components/NavBar';
 import { ApiError, request, PRODUCTS_API } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useCart } from '../contexts/CartContext';
 import type { Product } from '../types/products';
 
 export function ProductDetail() {
   const { productId } = useParams<{ productId: string }>();
   const { loggedIn, userId } = useAuth();
+  const { addItem } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inWishlist, setInWishlist] = useState(false);
   const [wishlistBusy, setWishlistBusy] = useState(false);
+  const [addedToCart, setAddedToCart] = useState(false);
 
   useEffect(() => {
     if (!productId) return;
@@ -26,6 +29,13 @@ export function ProductDetail() {
       })
       .finally(() => setLoading(false));
   }, [productId]);
+
+  function handleAddToCart() {
+    if (!product) return;
+    addItem({ productId: product.id, productName: product.name, priceAtPurchase: product.price });
+    setAddedToCart(true);
+    setTimeout(() => setAddedToCart(false), 2000);
+  }
 
   async function handleAddToWishlist() {
     if (!userId || !productId) return;
@@ -105,6 +115,12 @@ export function ProductDetail() {
                   ))}
               </div>
             )}
+
+            <div className="cart-actions">
+              <button onClick={handleAddToCart}>
+                {addedToCart ? '✓ Added to Cart' : 'Add to Cart'}
+              </button>
+            </div>
 
             {loggedIn && (
               <div className="wishlist-actions">
