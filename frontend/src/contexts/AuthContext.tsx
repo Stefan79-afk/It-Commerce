@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiError, request, USERS_API } from '../lib/api';
 import {
   clearTokens,
@@ -16,22 +16,34 @@ interface LoginResponse {
 interface AuthState {
   loggedIn: boolean;
   loading: boolean;
+  userId: string | null;
 }
 
-interface AuthContextValue extends AuthState {
+export interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
+function parseUserId(token: string): string | null {
+  try {
+    // JWT payload is URL-safe base64; replaceAll handles all occurrences
+    const b64 = token.split('.')[1].replaceAll('-', '+').replaceAll('_', '/');
+    const payload = JSON.parse(atob(b64)) as { sub?: string };
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState>({ loggedIn: false, loading: true });
+export function AuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
+  const [state, setState] = useState<AuthState>({ loggedIn: false, loading: true, userId: null });
 
   useEffect(() => {
     const refresh = getRefreshToken();
     if (!refresh) {
-      setState({ loggedIn: false, loading: false });
+      setState({ loggedIn: false, loading: false, userId: null });
       return;
     }
 
@@ -46,11 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .then((data) => {
         setAccessToken(data.accessToken);
-        setState({ loggedIn: true, loading: false });
+        setState({ loggedIn: true, loading: false, userId: parseUserId(data.accessToken) });
       })
       .catch(() => {
         clearTokens();
-        setState({ loggedIn: false, loading: false });
+        setState({ loggedIn: false, loading: false, userId: null });
       });
   }, []);
 
@@ -61,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setAccessToken(data.accessToken);
     setRefreshToken(data.refreshToken);
-    setState({ loggedIn: true, loading: false });
+    setState({ loggedIn: true, loading: false, userId: parseUserId(data.accessToken) });
   }, []);
 
   const logout = useCallback(async () => {
@@ -79,14 +91,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     clearTokens();
-    setState({ loggedIn: false, loading: false });
+    setState({ loggedIn: false, loading: false, userId: null });
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextValue>(
+    () => ({ ...state, login, logout }),
+    [state, login, logout],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {
