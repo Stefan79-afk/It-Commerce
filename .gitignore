@@ -12,3 +12,6 @@ __pycache__/
 orders-service/node_modules
 
 AI_RULES.md
+
+#Frontend
+frontend/node_modules
