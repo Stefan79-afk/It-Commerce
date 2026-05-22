@@ -58,6 +58,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/products/*").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products/*/images/presign").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products/*/images/confirm").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/v1/products/*/images").authenticated()
                 .requestMatchers(HttpMethod.PUT, "/api/v1/products/*/images/*").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/products/*/images/*").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/wishlists/*").authenticated()

@@ -3,23 +3,32 @@ package com.example.products_service.controllers;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
 
 import com.example.products_service.api.CreateProductRequest;
+import com.example.products_service.api.ImageConfirmRequest;
+import com.example.products_service.api.ImagePresignRequest;
+import com.example.products_service.api.ImagePresignResponse;
 import com.example.products_service.api.PaginationResponse;
 import com.example.products_service.api.ProductDetailResponse;
 import com.example.products_service.api.ProductCreateResponse;
 import com.example.products_service.api.ProductImageResponse;
 import com.example.products_service.api.ProductSummaryResponse;
 import com.example.products_service.api.UpdateProductRequest;
+import com.example.products_service.api.WishlistItemResponse;
 import com.example.products_service.entities.Product;
 import com.example.products_service.entities.ProductImage;
+import com.example.products_service.entities.Wishlist;
+import com.example.products_service.entities.WishlistId;
 import com.example.products_service.errors.ApiErrorCatalog;
 import com.example.products_service.errors.ApiException;
 import com.example.products_service.repositories.ProductImageRepository;
 import com.example.products_service.repositories.ProductRepository;
+import com.example.products_service.repositories.WishlistRepository;
+import com.example.products_service.services.ImagePresignService;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -44,12 +53,20 @@ public class ProductController {
 
     private final ProductImageRepository productImageRepository;
 
+    private final ImagePresignService imagePresignService;
+
+    private final WishlistRepository wishlistRepository;
+
     public ProductController(
         ProductRepository productRepository,
-        ProductImageRepository productImageRepository
+        ProductImageRepository productImageRepository,
+        ImagePresignService imagePresignService,
+        WishlistRepository wishlistRepository
     ) {
         this.productRepository = productRepository;
         this.productImageRepository = productImageRepository;
+        this.imagePresignService = imagePresignService;
+        this.wishlistRepository = wishlistRepository;
     }
 
     @GetMapping
@@ -133,6 +150,145 @@ public class ProductController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{productId}/images/presign")
+    public ImagePresignResponse createProductImagePresign(
+        @PathVariable UUID productId,
+        @Valid @RequestBody ImagePresignRequest request,
+        Authentication authentication
+    ) {
+        UUID userId = extractUserId(authentication);
+        Product product = getProductOrNotFound(productId);
+        assertCanManageProduct(product, userId, authentication);
+
+        UUID imageId = UUID.randomUUID();
+        return this.imagePresignService.createPresign(productId, imageId, request);
+    }
+
+    @PostMapping("/{productId}/images/confirm")
+    public ProductImageResponse confirmProductImage(
+        @PathVariable UUID productId,
+        @Valid @RequestBody ImageConfirmRequest request,
+        Authentication authentication
+    ) {
+        UUID userId = extractUserId(authentication);
+        Product product = getProductOrNotFound(productId);
+        assertCanManageProduct(product, userId, authentication);
+
+        ProductImage productImage = this.productImageRepository
+            .findByIdAndProductId(request.imageId(), productId)
+            .orElseGet(() -> newOrMissingScopedImage(productId, request.imageId()));
+
+        productImage.setFileUrl(request.fileUrl());
+        productImage.setDisplayOrder(request.displayOrder() == null ? 0 : request.displayOrder());
+
+        ProductImage savedProductImage = this.productImageRepository.save(productImage);
+        return toProductImageResponse(savedProductImage);
+    }
+
+    @GetMapping("/{productId}/images")
+    public PaginationResponse<ProductImageResponse> listProductImages(
+        @PathVariable UUID productId,
+        @PageableDefault(page = 0, size = 20) Pageable pageable,
+        Authentication authentication
+    ) {
+        UUID userId = extractUserId(authentication);
+        Product product = getProductOrNotFound(productId);
+        assertCanManageProduct(product, userId, authentication);
+
+        Page<ProductImage> imagePage = this.productImageRepository.findByProductId(productId, pageable);
+        List<ProductImageResponse> content = imagePage.getContent().stream().map(this::toProductImageResponse).toList();
+
+        return new PaginationResponse<>(
+            content,
+            imagePage.getNumber(),
+            imagePage.getSize(),
+            imagePage.getTotalElements(),
+            imagePage.getTotalPages()
+        );
+    }
+
+    @DeleteMapping("/{productId}/images/{imageId}")
+    public ResponseEntity<Void> deleteProductImage(
+        @PathVariable UUID productId,
+        @PathVariable UUID imageId,
+        Authentication authentication
+    ) {
+        UUID userId = extractUserId(authentication);
+        Product product = getProductOrNotFound(productId);
+        assertCanManageProduct(product, userId, authentication);
+
+        ProductImage image = this.productImageRepository
+            .findByIdAndProductId(imageId, productId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404)));
+
+        this.productImageRepository.delete(image);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/wishlists/{userId}")
+    public PaginationResponse<WishlistItemResponse> listWishlistItems(
+        @PathVariable UUID userId,
+        @PageableDefault(page = 0, size = 20) Pageable pageable,
+        Authentication authentication
+    ) {
+        UUID authenticatedUserId = extractUserId(authentication);
+        assertAuthenticatedUserMatches(authenticatedUserId, userId);
+
+        Page<Wishlist> wishlistPage = this.wishlistRepository.findByIdUserId(userId, pageable);
+        List<WishlistItemResponse> content = wishlistPage.getContent().stream().map(this::toWishlistItemResponse).toList();
+
+        return new PaginationResponse<>(
+            content,
+            wishlistPage.getNumber(),
+            wishlistPage.getSize(),
+            wishlistPage.getTotalElements(),
+            wishlistPage.getTotalPages()
+        );
+    }
+
+    @PostMapping("/wishlists/{userId}/{productId}")
+    public ResponseEntity<WishlistItemResponse> addWishlistItem(
+        @PathVariable UUID userId,
+        @PathVariable UUID productId,
+        Authentication authentication
+    ) {
+        UUID authenticatedUserId = extractUserId(authentication);
+        assertAuthenticatedUserMatches(authenticatedUserId, userId);
+
+        if (!this.productRepository.existsById(productId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404));
+        }
+
+        WishlistId wishlistId = new WishlistId(userId, productId);
+        if (this.wishlistRepository.existsById(wishlistId)) {
+            throw new ApiException(HttpStatus.CONFLICT, ApiErrorCatalog.defaultMessageFor(409));
+        }
+
+        Wishlist wishlist = new Wishlist();
+        wishlist.setId(wishlistId);
+        Wishlist savedWishlist = this.wishlistRepository.save(wishlist);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(toWishlistItemResponse(savedWishlist));
+    }
+
+    @DeleteMapping("/wishlists/{userId}/{productId}")
+    public ResponseEntity<Void> deleteWishlistItem(
+        @PathVariable UUID userId,
+        @PathVariable UUID productId,
+        Authentication authentication
+    ) {
+        UUID authenticatedUserId = extractUserId(authentication);
+        assertAuthenticatedUserMatches(authenticatedUserId, userId);
+
+        WishlistId wishlistId = new WishlistId(userId, productId);
+        Wishlist wishlist = this.wishlistRepository
+            .findById(wishlistId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404)));
+
+        this.wishlistRepository.delete(wishlist);
+        return ResponseEntity.noContent().build();
+    }
+
     private Product getProductOrNotFound(UUID productId) {
         return this.productRepository
             .findById(productId)
@@ -199,6 +355,18 @@ public class ProductController {
         );
     }
 
+    private WishlistItemResponse toWishlistItemResponse(Wishlist wishlist) {
+        if (wishlist.getId() == null) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, ApiErrorCatalog.defaultMessageFor(500));
+        }
+
+        return new WishlistItemResponse(
+            wishlist.getId().getUserId(),
+            wishlist.getId().getProductId(),
+            wishlist.getAddedAt()
+        );
+    }
+
     private UUID extractUserId(Authentication authentication) {
         if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, ApiErrorCatalog.defaultMessageFor(401));
@@ -209,6 +377,24 @@ public class ProductController {
         } catch (IllegalArgumentException ex) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, ApiErrorCatalog.defaultMessageFor(401), ex);
         }
+    }
+
+    private void assertAuthenticatedUserMatches(UUID authenticatedUserId, UUID pathUserId) {
+        if (!authenticatedUserId.equals(pathUserId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, ApiErrorCatalog.defaultMessageFor(403));
+        }
+    }
+
+    private ProductImage newOrMissingScopedImage(UUID productId, UUID imageId) {
+        Optional<ProductImage> productImageWithSameId = this.productImageRepository.findById(imageId);
+        if (productImageWithSameId.isPresent() && !productId.equals(productImageWithSameId.get().getProductId())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404));
+        }
+
+        ProductImage image = new ProductImage();
+        image.setId(imageId);
+        image.setProductId(productId);
+        return image;
     }
 
     private void assertCanManageProduct(Product product, UUID userId, Authentication authentication) {
