@@ -24,6 +24,12 @@ interface ProductCreateResponse {
   createdAt: string;
 }
 
+interface ImagePresignResponse {
+  imageId: string;
+  uploadUrl: string;
+  expiresIn: number;
+}
+
 function validateForm(form: FormState): FormErrors {
   const errors: FormErrors = {};
   if (!form.name.trim()) errors.name = 'Name is required';
@@ -46,6 +52,26 @@ function validateForm(form: FormState): FormErrors {
   return errors;
 }
 
+async function uploadImages(productId: string, files: File[]) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const presign = await request<ImagePresignResponse>(
+      `${PRODUCTS_API}/${productId}/images/presign`,
+      { method: 'POST', body: JSON.stringify({ fileName: file.name, contentType: file.type }) },
+    );
+    await fetch(presign.uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type },
+    });
+    const fileUrl = presign.uploadUrl.split('?')[0];
+    await request(`${PRODUCTS_API}/${productId}/images/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ imageId: presign.imageId, fileUrl, displayOrder: i }),
+    });
+  }
+}
+
 export function CreateProduct() {
   const [form, setForm] = useState<FormState>({
     name: '',
@@ -56,6 +82,7 @@ export function CreateProduct() {
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const navigate = useNavigate();
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -84,6 +111,17 @@ export function CreateProduct() {
           description: form.description.trim() || undefined,
         }),
       });
+
+      if (selectedFiles.length > 0) {
+        try {
+          await uploadImages(data.id, selectedFiles);
+        } catch (err) {
+          const message = err instanceof ApiError ? err.message : 'Unknown error';
+          setErrors({ general: `Product created, but image upload failed: ${message}` });
+          return;
+        }
+      }
+
       navigate(`/products/${data.id}`);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Failed to create product';
@@ -165,6 +203,23 @@ export function CreateProduct() {
               onChange={handleChange}
               rows={4}
             />
+          </div>
+
+          <div className="field">
+            <label htmlFor="images">Images (optional)</label>
+            <input
+              id="images"
+              name="images"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => setSelectedFiles(Array.from(e.target.files ?? []))}
+            />
+            {selectedFiles.length > 0 && (
+              <ul className="file-list">
+                {selectedFiles.map((f) => <li key={f.name}>{f.name}</li>)}
+              </ul>
+            )}
           </div>
 
           {errors.general && (
