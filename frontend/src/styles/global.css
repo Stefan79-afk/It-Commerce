@@ -84,7 +84,7 @@ button[type='submit']:hover:not(:disabled) { background: #1d4ed8; }
   display: inline-block;
   padding: 8px 16px;
   background: #fff;
-  color: #e53e3e;
+  color: #b91c1c;
   border: 1px solid #e53e3e;
   border-radius: 4px;
   font-size: 0.9rem;
@@ -312,3 +312,14 @@ button[type='submit']:hover:not(:disabled) { background: #1d4ed8; }
 
 p a { color: #2563eb; }
 p { margin-top: 16px; text-align: center; font-size: 0.875rem; }
+
+/* ── Profile ── */
+.profile-card { background: #fff; border-radius: 8px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); max-width: 520px; }
+.profile-field { margin-bottom: 14px; }
+.profile-field dt { font-size: 0.8rem; color: #888; margin-bottom: 2px; }
+.profile-field dd { font-size: 1rem; font-weight: 500; }
+.profile-actions { display: flex; gap: 12px; margin-top: 20px; }
+.profile-divider { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+.confirm-box { background: #fff5f5; border: 1px solid #fca5a5; border-radius: 8px; padding: 20px; max-width: 520px; margin-top: 12px; }
+.confirm-box p { margin-bottom: 16px; color: #7f1d1d; font-size: 0.95rem; text-align: left; }
+.confirm-actions { display: flex; gap: 12px; }

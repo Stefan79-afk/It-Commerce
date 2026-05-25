@@ -14,6 +14,7 @@ export function NavBar() {
         <Link to="/cart">
           Cart{totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
         </Link>
+        {loggedIn && <Link to="/profile">Profile</Link>}
         {loggedIn && <Link to="/wishlist">Wishlist</Link>}
         {loggedIn && <Link to="/orders">Orders</Link>}
         {loggedIn && <Link to="/products/create">Add Product</Link>}
