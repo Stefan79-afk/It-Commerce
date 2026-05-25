@@ -15,6 +15,7 @@ from .serializers import (
     LoginRequestSerializer,
     LoginResponseSerializer,
     LogoutRequestSerializer,
+    ForgotPasswordRequestSerializer,
     MessageResponseSerializer,
     PasswordResetRequestSerializer,
     RefreshRequestSerializer,
@@ -37,6 +38,7 @@ from .services import (
     logout_with_refresh_token,
     update_user_address,
     update_user_profile,
+    forgot_password,
     reset_user_password,
     refresh_access_token,
 )
@@ -124,6 +126,14 @@ def password_reset_request(request, userId):
     serializer.is_valid(raise_exception=True)
 
     response_payload = reset_user_password(userId, **serializer.validated_data)
+    return Response(MessageResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def forgot_password_view(request):
+    serializer = ForgotPasswordRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    response_payload = forgot_password(**serializer.validated_data)
     return Response(MessageResponseSerializer(response_payload).data, status=status.HTTP_200_OK)
 
 

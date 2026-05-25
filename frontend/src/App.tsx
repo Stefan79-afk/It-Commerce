@@ -14,6 +14,7 @@ import { OrderList } from './pages/OrderList';
 import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
 import { ChangePassword } from './pages/ChangePassword';
+import { ForgotPassword } from './pages/ForgotPassword';
 
 export function App() {
   return (
@@ -23,6 +24,7 @@ export function App() {
           {/* Public */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/products" element={<ProductList />} />
           <Route path="/products/:productId" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />

@@ -122,6 +122,19 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         return validate_strong_password(value)
 
 
+class ForgotPasswordRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    new_password = serializers.CharField(
+        write_only=True, trim_whitespace=False, allow_blank=False
+    )
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+    def validate_new_password(self, value: str) -> str:
+        return validate_strong_password(value)
+
+
 class UserSerializer(serializers.Serializer):
     id = serializers.UUIDField(format="hex_verbose", read_only=True)
     email = serializers.EmailField(read_only=True)

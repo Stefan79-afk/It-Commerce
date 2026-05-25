@@ -117,6 +117,30 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/users/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Reset password without current password (forgot password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/users/{userId}:
     parameters:
       - $ref: '#/components/parameters/UserId'
@@ -521,6 +545,18 @@ components:
           type: string
         phoneNumber:
           type: string
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+        - new_password
+      properties:
+        email:
+          type: string
+          format: email
+        new_password:
+          type: string
+          minLength: 8
     PasswordResetRequest:
       type: object
       required:

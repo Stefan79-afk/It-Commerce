@@ -114,6 +114,9 @@ export function Login() {
       <p>
         Don&apos;t have an account? <Link to="/register">Register</Link>
       </p>
+      <p>
+        <Link to="/forgot-password">Forgot your password?</Link>
+      </p>
     </div>
   );
 }

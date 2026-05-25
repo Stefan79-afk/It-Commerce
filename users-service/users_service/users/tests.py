@@ -18,6 +18,7 @@ from rest_framework.exceptions import NotFound
 from .exceptions import UnauthorizedError
 from .models import Address, RefreshToken, User
 from .serializers import (
+    ForgotPasswordRequestSerializer,
     PASSWORD_RULES_MESSAGE,
     PasswordResetRequestSerializer,
     PHONE_RULES_MESSAGE,
@@ -26,6 +27,7 @@ from .serializers import (
 from .services import (
     authenticate_user_and_issue_tokens,
     create_user_from_register_payload,
+    forgot_password,
     get_jwks_payload,
     logout_with_refresh_token,
     reset_user_password,
@@ -287,6 +289,227 @@ class PasswordResetServiceUnitTests(TestCase):
                 current_password="StrongPassword123!",
                 new_password="NewStrongPassword123!",
             )
+
+
+class ForgotPasswordSerializerUnitTests(TestCase):
+    def test_serializer_accepts_valid_payload(self):
+        serializer = ForgotPasswordRequestSerializer(
+            data={
+                "email": "  JOHN@example.COM ",
+                "new_password": "NewStrongPassword123!",
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["email"], "john@example.com")
+
+    def test_serializer_requires_email(self):
+        serializer = ForgotPasswordRequestSerializer(data={"new_password": "NewStrongPassword123!"})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("email", serializer.errors)
+
+    def test_serializer_requires_new_password(self):
+        serializer = ForgotPasswordRequestSerializer(data={"email": "john@example.com"})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("new_password", serializer.errors)
+
+    def test_serializer_rejects_invalid_email(self):
+        serializer = ForgotPasswordRequestSerializer(
+            data={"email": "not-an-email", "new_password": "NewStrongPassword123!"}
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("email", serializer.errors)
+
+    def test_serializer_rejects_weak_passwords(self):
+        weak_passwords = [
+            "short1!",
+            "lowercase123!",
+            "UPPERCASE123!",
+            "NoDigits!!",
+            "NoSpecial123",
+        ]
+
+        for password in weak_passwords:
+            serializer = ForgotPasswordRequestSerializer(
+                data={"email": "john@example.com", "new_password": password}
+            )
+
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("new_password", serializer.errors)
+            self.assertEqual(serializer.errors["new_password"][0], PASSWORD_RULES_MESSAGE)
+
+
+class ForgotPasswordServiceUnitTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def test_updates_password_and_revokes_active_tokens(self):
+        active_token = RefreshToken.objects.create(
+            user=self.user,
+            token="active-token",
+            revoked=False,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        revoked_token = RefreshToken.objects.create(
+            user=self.user,
+            token="already-revoked-token",
+            revoked=True,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+
+        response = forgot_password(
+            email="john@example.com",
+            new_password="NewStrongPassword123!",
+        )
+
+        self.assertEqual(response["message"], "Password updated.")
+        self.user.refresh_from_db()
+        self.assertTrue(check_password("NewStrongPassword123!", self.user.password_hash))
+        self.assertFalse(check_password("StrongPassword123!", self.user.password_hash))
+        active_token.refresh_from_db()
+        revoked_token.refresh_from_db()
+        self.assertTrue(active_token.revoked)
+        self.assertTrue(revoked_token.revoked)
+
+    def test_raises_not_found_for_unknown_email(self):
+        with self.assertRaisesMessage(NotFound, "No account found with that email address."):
+            forgot_password(
+                email="nobody@example.com",
+                new_password="NewStrongPassword123!",
+            )
+
+
+class ForgotPasswordEndpointIntegrationTests(JwtSettingsMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(
+            email="john@example.com",
+            password_hash=make_password("StrongPassword123!"),
+            first_name="John",
+            last_name="Doe",
+            role="USER",
+        )
+
+    def _login(self, email: str, password: str) -> dict:
+        response = self.client.post(
+            "/api/v1/users/login",
+            data={"email": email, "password": password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_happy_path_updates_password_and_revokes_tokens(self):
+        login_data = self._login("john@example.com", "StrongPassword123!")
+        old_refresh_token = login_data["refreshToken"]
+
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "john@example.com", "new_password": "NewStrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"message": "Password updated."})
+
+        old_login = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "StrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(old_login.status_code, 401)
+
+        new_login = self.client.post(
+            "/api/v1/users/login",
+            data={"email": "john@example.com", "password": "NewStrongPassword123!"},
+            format="json",
+        )
+        self.assertEqual(new_login.status_code, 200)
+
+        refresh_response = self.client.post(
+            "/api/v1/users/refresh",
+            data={"refreshToken": old_refresh_token},
+            format="json",
+        )
+        self.assertEqual(refresh_response.status_code, 401)
+
+    def test_returns_400_for_missing_fields(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["status"], 400)
+        self.assertEqual(data["error"], "VALIDATION_ERROR")
+
+    def test_returns_400_for_invalid_email(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "not-an-email", "new_password": "NewStrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["status"], 400)
+        self.assertEqual(data["error"], "VALIDATION_ERROR")
+
+    def test_returns_400_for_weak_password(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "john@example.com", "new_password": "weak"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["status"], 400)
+        self.assertEqual(data["error"], "VALIDATION_ERROR")
+
+    def test_returns_404_for_unknown_email(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "nobody@example.com", "new_password": "NewStrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        data = response.json()
+        self.assertEqual(data["status"], 404)
+        self.assertEqual(data["error"], "RESOURCE_NOT_FOUND")
+        self.assertEqual(data["path"], "/api/v1/users/forgot-password")
+
+    def test_endpoint_does_not_require_authentication(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "john@example.com", "new_password": "NewStrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_email_is_case_insensitive(self):
+        response = self.client.post(
+            "/api/v1/users/forgot-password",
+            data={"email": "  JOHN@EXAMPLE.COM  ", "new_password": "NewStrongPassword123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"message": "Password updated."})
 
 
 class LoginServiceUnitTests(JwtSettingsMixin, TestCase):

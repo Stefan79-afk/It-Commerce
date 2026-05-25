@@ -200,6 +200,20 @@ def reset_user_password(
     return {"message": "Password updated."}
 
 
+def forgot_password(email: str, new_password: str) -> dict:
+    normalized_email = email.strip().lower()
+    user = User.objects.filter(email=normalized_email).first()
+    if user is None:
+        raise NotFound("No account found with that email address.")
+
+    with transaction.atomic():
+        user.password_hash = make_password(new_password)
+        user.save(update_fields=["password_hash", "updated_at"])
+        RefreshToken.objects.filter(user=user, revoked=False).update(revoked=True)
+
+    return {"message": "Password updated."}
+
+
 def get_user_or_404(user_id) -> User:
     user = User.objects.filter(id=user_id).first()
     if user is None:
