@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { NavBar } from '../components/NavBar';
 import { ApiError, request, USERS_API } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -166,6 +166,7 @@ export function Profile() {
               <button type="button" className="btn-primary" onClick={startEditing}>
                 Edit
               </button>
+              <Link to="/change-password" className="btn-secondary">Change Password</Link>
             </div>
           </div>
         )}

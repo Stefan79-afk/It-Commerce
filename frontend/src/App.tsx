@@ -13,6 +13,7 @@ import { Checkout } from './pages/Checkout';
 import { OrderList } from './pages/OrderList';
 import { OrderDetail } from './pages/OrderDetail';
 import { Profile } from './pages/Profile';
+import { ChangePassword } from './pages/ChangePassword';
 
 export function App() {
   return (
@@ -35,6 +36,7 @@ export function App() {
             <Route path="/orders" element={<OrderList />} />
             <Route path="/orders/:orderId" element={<OrderDetail />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/change-password" element={<ChangePassword />} />
           </Route>
         </Routes>
       </AuthProvider>
