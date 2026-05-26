@@ -1,0 +1,209 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: eu-west-1
+
+permissions:
+  id-token: write   # OIDC — no long-lived AWS keys needed
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------ #
+  # 1. TEST                                                              #
+  # ------------------------------------------------------------------ #
+  test-users:
+    name: Test users-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: users-service
+      - name: Run tests
+        run: python manage.py test
+        working-directory: users-service/users_service
+        env:
+          USERS_DEBUG: "1"
+          USERS_SECRET_KEY: "ci-secret"
+          USERS_ALLOWED_HOSTS: "localhost"
+          USERS_POSTGRES_HOST: "localhost"
+          USERS_POSTGRES_DB: "test_db"
+          USERS_POSTGRES_USER: "test_user"
+          USERS_POSTGRES_PASSWORD: "test_pass"
+          USERS_JWT_PRIVATE_KEY: ""
+          USERS_JWT_KID: "test-key"
+          USERS_JWT_ISSUER: "itcommerce-users"
+          USERS_JWT_AUDIENCE: "itcommerce-api"
+          USERS_JWT_ACCESS_TTL_SECONDS: "900"
+          USERS_JWT_REFRESH_TTL_SECONDS: "604800"
+
+  test-orders:
+    name: Test orders-service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: orders-service/package-lock.json
+      - run: npm ci
+        working-directory: orders-service
+      - run: npm test
+        working-directory: orders-service
+
+  test-frontend:
+    name: Test frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run test
+        working-directory: frontend
+
+  # ------------------------------------------------------------------ #
+  # 2. BUILD + PUSH TO ECR  (main branch only)                          #
+  # ------------------------------------------------------------------ #
+  build-push:
+    name: Build & push images to ECR
+    runs-on: ubuntu-latest
+    needs: [test-users, test-orders, test-frontend]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-ecr-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        run: echo "TAG=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push users-service
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/itcommerce/users-service:$TAG \
+                       -t $ECR_REGISTRY/itcommerce/users-service:latest \
+                       ./users-service
+          docker push $ECR_REGISTRY/itcommerce/users-service:$TAG
+          docker push $ECR_REGISTRY/itcommerce/users-service:latest
+
+      - name: Build and push products-service
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/itcommerce/products-service:$TAG \
+                       -t $ECR_REGISTRY/itcommerce/products-service:latest \
+                       ./products-service
+          docker push $ECR_REGISTRY/itcommerce/products-service:$TAG
+          docker push $ECR_REGISTRY/itcommerce/products-service:latest
+
+      - name: Build and push orders-service
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/itcommerce/orders-service:$TAG \
+                       -t $ECR_REGISTRY/itcommerce/orders-service:latest \
+                       ./orders-service
+          docker push $ECR_REGISTRY/itcommerce/orders-service:$TAG
+          docker push $ECR_REGISTRY/itcommerce/orders-service:latest
+
+      - name: Build and push frontend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/itcommerce/frontend:$TAG \
+                       -t $ECR_REGISTRY/itcommerce/frontend:latest \
+                       ./frontend
+          docker push $ECR_REGISTRY/itcommerce/frontend:$TAG
+          docker push $ECR_REGISTRY/itcommerce/frontend:latest
+
+      - name: Build and push nginx
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/itcommerce/nginx:$TAG \
+                       -t $ECR_REGISTRY/itcommerce/nginx:latest \
+                       ./nginx
+          docker push $ECR_REGISTRY/itcommerce/nginx:$TAG
+          docker push $ECR_REGISTRY/itcommerce/nginx:latest
+
+  # ------------------------------------------------------------------ #
+  # 3. DEPLOY TO ECS  (main branch only)                                #
+  # ------------------------------------------------------------------ #
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-ecr-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force new ECS deployments
+        run: |
+          for SERVICE in users-service products-service orders-service frontend nginx; do
+            echo "Deploying $SERVICE..."
+            aws ecs update-service \
+              --cluster itcommerce \
+              --service $SERVICE \
+              --force-new-deployment \
+              --output text \
+              --query 'service.serviceName'
+          done
+
+      - name: Wait for services to stabilize
+        run: |
+          for SERVICE in users-service products-service orders-service frontend nginx; do
+            echo "Waiting for $SERVICE..."
+            aws ecs wait services-stable \
+              --cluster itcommerce \
+              --services $SERVICE
+          done

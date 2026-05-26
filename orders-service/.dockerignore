@@ -1,1 +1,7 @@
-node_modules
+.env
+.git
+.gitignore
+node_modules/
+coverage/
+playwright-report/
+*.test.js

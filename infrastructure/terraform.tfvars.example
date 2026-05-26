@@ -1,0 +1,23 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored.
+
+aws_region   = "eu-west-1"
+project_name = "itcommerce"
+environment  = "prod"
+
+# --- Networking ---
+# Override AZs if you change aws_region (AZ names are region-specific)
+availability_zones = ["eu-west-1a", "eu-west-1b"]
+# vpc_cidr             = "10.0.0.0/16"
+# public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+# private_subnet_cidrs = ["10.0.3.0/24", "10.0.4.0/24"]
+
+# --- RDS ---
+db_username = "itcommerce_admin"
+
+# --- Secrets ---
+jwt_private_key      = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+users_db_password    = "CHANGE_ME_users_db_pass"
+products_db_password = "CHANGE_ME_products_db_pass"
+mongo_uri            = "mongodb+srv://orders_user:PASS@cluster.mongodb.net/orders_db?retryWrites=true&w=majority"
+django_secret_key    = "CHANGE_ME_django_secret_key_long_random_string"
