@@ -22,3 +22,7 @@ infrastructure/terraform.tfvars
 infrastructure/*.tfstate
 infrastructure/*.tfstate.backup
 infrastructure/crash.log
+
+# Private keys / certs
+*.pem
+*.key
