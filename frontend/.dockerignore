@@ -2,6 +2,6 @@
 .git
 .gitignore
 node_modules/
+dist/
 coverage/
 playwright-report/
-*.test.js
