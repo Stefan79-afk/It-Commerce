@@ -137,6 +137,11 @@ variable "nginx_memory" {
 
 # --- JWT / App config ---
 
+variable "github_repo" {
+  description = "GitHub repository for CI/CD OIDC trust, in owner/repo format (e.g. acme/my-app)"
+  type        = string
+}
+
 variable "jwt_kid" {
   type    = string
   default = "users-key-1"

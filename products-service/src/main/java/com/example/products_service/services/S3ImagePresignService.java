@@ -15,8 +15,10 @@ import org.springframework.util.StringUtils;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
@@ -74,6 +76,52 @@ public class S3ImagePresignService implements ImagePresignService {
 
             PresignedPutObjectRequest presignedPutObjectRequest = presigner.presignPutObject(presignRequest);
             return presignedPutObjectRequest.url().toString();
+        } catch (SdkClientException | IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    @Override
+    public String resolveViewUrl(String storedUrl) {
+        if (storedUrl == null || !this.imageStorageProperties.hasS3Configuration()) {
+            return storedUrl;
+        }
+
+        String bucket = this.imageStorageProperties.getS3().getBucket();
+        String region = this.imageStorageProperties.getS3().getRegion();
+        String s3Prefix = "https://" + bucket + ".s3." + region + ".amazonaws.com/";
+
+        if (!storedUrl.startsWith(s3Prefix)) {
+            return storedUrl;
+        }
+
+        String objectKey = storedUrl.substring(s3Prefix.length());
+        String presignedUrl = generateS3PresignedGetUrlOrNull(objectKey);
+        return presignedUrl != null ? presignedUrl : storedUrl;
+    }
+
+    private String generateS3PresignedGetUrlOrNull(String objectKey) {
+        String bucket = this.imageStorageProperties.getS3().getBucket();
+        String region = this.imageStorageProperties.getS3().getRegion();
+
+        try (
+            DefaultCredentialsProvider credentialsProvider = DefaultCredentialsProvider.create();
+            S3Presigner presigner = S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(credentialsProvider)
+                .build()
+        ) {
+            credentialsProvider.resolveCredentials();
+
+            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                .signatureDuration(resolveTtl())
+                .getObjectRequest(GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build())
+                .build();
+
+            return presigner.presignGetObject(presignRequest).url().toString();
         } catch (SdkClientException | IllegalArgumentException ex) {
             return null;
         }

@@ -57,7 +57,7 @@ resource "aws_ecs_task_definition" "users" {
 
     environment = [
       { name = "USERS_DEBUG",                value = "0" },
-      { name = "USERS_ALLOWED_HOSTS",        value = "${var.alb_dns_name},localhost" },
+      { name = "USERS_ALLOWED_HOSTS",        value = "${var.alb_dns_name},localhost,users-service" },
       { name = "USERS_POSTGRES_DB",          value = "users_db" },
       { name = "USERS_POSTGRES_USER",        value = var.db_username },
       { name = "USERS_POSTGRES_HOST",        value = var.users_db_host },

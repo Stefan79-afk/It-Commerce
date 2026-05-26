@@ -329,7 +329,7 @@ public class ProductController {
             .findByProductIdInOrderByProductIdAscDisplayOrderAscUploadedAtAsc(productIds);
 
         for (ProductImage productImage : productImages) {
-            thumbnailByProductId.putIfAbsent(productImage.getProductId(), productImage.getFileUrl());
+            thumbnailByProductId.putIfAbsent(productImage.getProductId(), this.imagePresignService.resolveViewUrl(productImage.getFileUrl()));
         }
 
         return thumbnailByProductId;
@@ -349,7 +349,7 @@ public class ProductController {
     private ProductImageResponse toProductImageResponse(ProductImage productImage) {
         return new ProductImageResponse(
             productImage.getId(),
-            productImage.getFileUrl(),
+            this.imagePresignService.resolveViewUrl(productImage.getFileUrl()),
             productImage.getDisplayOrder(),
             productImage.getUploadedAt()
         );

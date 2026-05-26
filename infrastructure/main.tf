@@ -37,6 +37,7 @@ module "iam" {
   project_name = var.project_name
   secret_arns  = module.secrets.secret_arns
   bucket_arn   = module.s3.bucket_arn
+  github_repo  = var.github_repo
 }
 
 module "rds" {

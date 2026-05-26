@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  AWS_REGION: eu-central-1
+  AWS_REGION: eu-west-1
 
 permissions:
   id-token: write   # OIDC — no long-lived AWS keys needed
