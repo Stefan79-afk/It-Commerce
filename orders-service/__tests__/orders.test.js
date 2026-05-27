@@ -335,4 +335,49 @@ describe("PATCH /api/v1/orders/:orderId", () => {
             .send({ status: "CANCELLED" });
         expect(res.status).toBe(404);
     });
+
+    test("cancelling an order restores stock for every item", async () => {
+        const order = await Order.create({
+            ...orderBase,
+            userId: "user-uuid-1",
+            status: "CREATED",
+            items: [
+                { productId: "prod-uuid-1", productName: "RTX 4080", priceAtPurchase: 999.99, quantity: 2 },
+                { productId: "prod-uuid-2", productName: "CPU i9",   priceAtPurchase: 599.99, quantity: 1 },
+            ],
+        });
+
+        global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 });
+
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send({ status: "CANCELLED" });
+
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe("CANCELLED");
+
+        // One restore-stock call per item
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        const calls = global.fetch.mock.calls;
+        expect(calls[0][0]).toContain("prod-uuid-1");
+        expect(calls[0][0]).toContain("restore-stock");
+        expect(JSON.parse(calls[0][1].body).quantity).toBe(2);
+        expect(calls[1][0]).toContain("prod-uuid-2");
+        expect(JSON.parse(calls[1][1].body).quantity).toBe(1);
+    });
+
+    test("admin setting CANCELLED on an already-cancelled order does not restore stock again", async () => {
+        const order = await Order.create({ ...orderBase, userId: "user-uuid-1", status: "CANCELLED" });
+
+        global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 });
+
+        const res = await request(app)
+            .patch(`/api/v1/orders/${order._id}`)
+            .set("Authorization", `Bearer ${signToken("admin-uuid", ["ADMIN"])}`)
+            .send({ status: "CANCELLED" });
+
+        expect(res.status).toBe(200);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
 });

@@ -167,8 +167,16 @@ router.patch("/orders/:orderId", authenticate, async (req, res, next) => {
             }
         }
 
+        const previousStatus = order.status;
         order.status = status;
         await order.save();
+
+        if (status === "CANCELLED" && previousStatus !== "CANCELLED") {
+            const bearerToken = req.headers.authorization;
+            for (const item of order.items) {
+                await restoreStock(item.productId, item.quantity, bearerToken);
+            }
+        }
 
         res.json(toOrder(order.toObject()));
     } catch (err) {

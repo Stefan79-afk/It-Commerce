@@ -20,4 +20,6 @@ public interface ProductImageRepository extends JpaRepository<ProductImage, UUID
     Page<ProductImage> findByProductId(UUID productId, Pageable pageable);
 
     Optional<ProductImage> findByIdAndProductId(UUID id, UUID productId);
+
+    void deleteByProductId(UUID productId);
 }

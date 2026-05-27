@@ -604,6 +604,24 @@ class ProductsServiceApplicationTests {
 	}
 
 	@Test
+	void deleteProductAlsoDeletesItsImages() throws Exception {
+		UUID productId = UUID.fromString("aaa85f64-5717-4562-b3fc-2c963f66afa6");
+		UUID ownerId   = UUID.fromString("aaa85f64-5717-4562-b3fc-2c963f66afa7");
+
+		Product ownedProduct = buildProduct(productId, "Camera", "Electronics", new BigDecimal("299.99"), false);
+		ownedProduct.setCreatedByUserId(ownerId);
+		when(this.productRepository.findById(productId)).thenReturn(Optional.of(ownedProduct));
+
+		this.mockMvc
+			.perform(delete("/api/v1/products/" + productId)
+				.with(jwt().jwt(token -> token.subject(ownerId.toString()))))
+			.andExpect(status().isNoContent());
+
+		verify(this.productImageRepository).deleteByProductId(productId);
+		verify(this.productRepository).delete(ownedProduct);
+	}
+
+	@Test
 	void nonAdminCannotDeleteOfficialProduct() throws Exception {
 		UUID productId = UUID.fromString("9fa85f64-5717-4562-b3fc-2c963f66afa6");
 		UUID userId = UUID.fromString("9fa85f64-5717-4562-b3fc-2c963f66afa7");

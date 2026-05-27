@@ -106,6 +106,30 @@ describe('ProductDetail', () => {
     expect(await screen.findByRole('button', { name: /remove from wishlist/i })).toBeInTheDocument();
   });
 
+  it('shows Edit Product link when logged-in user owns the product', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...MOCK_PRODUCT, createdByUserId: 'user-uuid-1' });
+    renderDetail(true, 'user-uuid-1');
+
+    await screen.findByText('RTX 4080');
+    expect(screen.getByRole('link', { name: /edit product/i })).toBeInTheDocument();
+  });
+
+  it('does not show Edit Product link when user is not the owner', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...MOCK_PRODUCT, createdByUserId: 'other-user' });
+    renderDetail(true, 'user-uuid-1');
+
+    await screen.findByText('RTX 4080');
+    expect(screen.queryByRole('link', { name: /edit product/i })).not.toBeInTheDocument();
+  });
+
+  it('does not show Edit Product link for official products', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue(MOCK_PRODUCT); // createdByUserId: null
+    renderDetail(true, 'user-uuid-1');
+
+    await screen.findByText('RTX 4080');
+    expect(screen.queryByRole('link', { name: /edit product/i })).not.toBeInTheDocument();
+  });
+
   it('handles 409 on Add (already wishlisted) by switching to Remove state', async () => {
     vi.spyOn(api, 'request')
       .mockResolvedValueOnce(MOCK_PRODUCT)                                                          // product fetch

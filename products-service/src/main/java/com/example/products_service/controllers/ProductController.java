@@ -147,6 +147,7 @@ public class ProductController {
         Product product = getProductOrNotFound(productId);
 
         assertCanManageProduct(product, userId, authentication);
+        this.productImageRepository.deleteByProductId(productId);
         this.productRepository.delete(product);
         return ResponseEntity.noContent().build();
     }

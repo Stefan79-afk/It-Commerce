@@ -7,6 +7,7 @@ import { Home } from './pages/Home';
 import { ProductList } from './pages/ProductList';
 import { ProductDetail } from './pages/ProductDetail';
 import { CreateProduct } from './pages/CreateProduct';
+import { EditProduct } from './pages/EditProduct';
 import { Wishlist } from './pages/Wishlist';
 import { Cart } from './pages/Cart';
 import { Checkout } from './pages/Checkout';
@@ -33,6 +34,7 @@ export function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Home />} />
             <Route path="/products/create" element={<CreateProduct />} />
+            <Route path="/products/:productId/edit" element={<EditProduct />} />
             <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/orders" element={<OrderList />} />

@@ -140,6 +140,14 @@ export function ProductDetail() {
               </button>
             </div>
 
+            {loggedIn && product.createdByUserId !== null && product.createdByUserId === userId && (
+              <div className="edit-actions">
+                <Link to={`/products/${product.id}/edit`} className="btn-secondary">
+                  Edit Product
+                </Link>
+              </div>
+            )}
+
             {loggedIn && (
               <div className="wishlist-actions">
                 {inWishlist ? (
