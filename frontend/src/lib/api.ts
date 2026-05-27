@@ -48,16 +48,15 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
   let res = await fetch(url, { ...options, headers });
 
   if (res.status === 401) {
-    if (!_refreshing) {
-      _refreshing = attemptRefresh().finally(() => {
-        _refreshing = null;
-      });
-    }
+    _refreshing ??= attemptRefresh().finally(() => {
+      _refreshing = null;
+    });
 
     const refreshed = await _refreshing;
 
     if (!refreshed) {
-      throw new ApiError(401, 'Session expired. Please log in again.');
+      const body = await res.json().catch(() => ({})) as { message?: string };
+      throw new ApiError(res.status, body.message ?? 'Session expired. Please log in again.', body);
     }
 
     const newToken = getAccessToken();
