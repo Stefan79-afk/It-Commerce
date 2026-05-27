@@ -101,7 +101,9 @@ jobs:
           distribution: temurin
           cache: maven
       - name: Run tests
-        run: ./mvnw test
+        run: |
+          chmod +x mvnw
+          ./mvnw test
         working-directory: products-service
 
   # ------------------------------------------------------------------ #
