@@ -84,23 +84,25 @@ describe('ProductDetail', () => {
   it('switches to Remove after clicking Add to Wishlist', async () => {
     const mockRequest = vi
       .spyOn(api, 'request')
-      .mockResolvedValueOnce(MOCK_PRODUCT) // product fetch
-      .mockResolvedValueOnce(undefined);   // wishlist add
+      .mockResolvedValueOnce(MOCK_PRODUCT)                                                          // product fetch
+      .mockResolvedValueOnce({ content: [], page: 0, size: 200, totalElements: 0, totalPages: 0 }) // wishlist status check
+      .mockResolvedValueOnce(undefined);                                                            // wishlist add POST
 
     renderDetail(true, 'user-uuid-1');
 
     const addBtn = await screen.findByRole('button', { name: /add to wishlist/i });
     await userEvent.click(addBtn);
 
-    expect(mockRequest).toHaveBeenCalledTimes(2);
-    expect(mockRequest.mock.calls[1][0]).toContain('/wishlists/user-uuid-1/p1');
+    expect(mockRequest).toHaveBeenCalledTimes(3);
+    expect(mockRequest.mock.calls[2][0]).toContain('/wishlists/user-uuid-1/p1');
     expect(await screen.findByRole('button', { name: /remove from wishlist/i })).toBeInTheDocument();
   });
 
   it('handles 409 on Add (already wishlisted) by switching to Remove state', async () => {
     vi.spyOn(api, 'request')
-      .mockResolvedValueOnce(MOCK_PRODUCT)
-      .mockRejectedValueOnce(new api.ApiError(409, 'Already in wishlist'));
+      .mockResolvedValueOnce(MOCK_PRODUCT)                                                          // product fetch
+      .mockResolvedValueOnce({ content: [], page: 0, size: 200, totalElements: 0, totalPages: 0 }) // wishlist status check
+      .mockRejectedValueOnce(new api.ApiError(409, 'Already in wishlist'));                        // wishlist add POST → 409
 
     renderDetail(true, 'user-uuid-1');
     await userEvent.click(await screen.findByRole('button', { name: /add to wishlist/i }));
