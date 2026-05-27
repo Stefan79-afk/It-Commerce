@@ -4,7 +4,7 @@ import { NavBar } from '../components/NavBar';
 import { ApiError, request, PRODUCTS_API } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
-import type { Product } from '../types/products';
+import type { Page, Product, WishlistItem } from '../types/products';
 
 export function ProductDetail() {
   const { productId } = useParams<{ productId: string }>();
@@ -29,6 +29,15 @@ export function ProductDetail() {
       })
       .finally(() => setLoading(false));
   }, [productId]);
+
+  useEffect(() => {
+    if (!userId || !productId) return;
+    request<Page<WishlistItem>>(`${PRODUCTS_API}/wishlists/${userId}?page=0&size=200`)
+      .then((data) => {
+        setInWishlist(data.content.some((item) => item.productId === productId));
+      })
+      .catch(() => { /* leave inWishlist as false on error */ });
+  }, [userId, productId]);
 
   function handleAddToCart() {
     if (!product) return;

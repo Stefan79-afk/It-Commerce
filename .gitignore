@@ -1,4 +1,4 @@
-plan.txt
+
 .vscode/
 
 # User Service
@@ -10,8 +10,6 @@ __pycache__/
 
 # Orders Service
 orders-service/node_modules
-
-AI_RULES.md
 
 #Frontend
 frontend/node_modules
