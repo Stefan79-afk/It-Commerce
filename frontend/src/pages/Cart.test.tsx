@@ -76,4 +76,28 @@ describe('Cart', () => {
     await userEvent.click(decBtns[0]);
     expect(mockUpdateQuantity).toHaveBeenCalledWith('p1', 1);
   });
+
+  it('disables increase button when quantity equals stockQuantity', () => {
+    renderCart([
+      { productId: 'p1', productName: 'RTX 4080', priceAtPurchase: 999.99, quantity: 3, stockQuantity: 3 },
+    ]);
+    const incBtn = screen.getByRole('button', { name: /increase quantity/i });
+    expect(incBtn).toBeDisabled();
+  });
+
+  it('does not disable increase button when stockQuantity is undefined', () => {
+    renderCart([
+      { productId: 'p1', productName: 'RTX 4080', priceAtPurchase: 999.99, quantity: 3 },
+    ]);
+    const incBtn = screen.getByRole('button', { name: /increase quantity/i });
+    expect(incBtn).not.toBeDisabled();
+  });
+
+  it('does not disable increase button when quantity is below stockQuantity', () => {
+    renderCart([
+      { productId: 'p1', productName: 'RTX 4080', priceAtPurchase: 999.99, quantity: 2, stockQuantity: 5 },
+    ]);
+    const incBtn = screen.getByRole('button', { name: /increase quantity/i });
+    expect(incBtn).not.toBeDisabled();
+  });
 });

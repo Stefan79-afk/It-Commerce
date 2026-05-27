@@ -73,6 +73,14 @@ describe('ProductDetail', () => {
     expect(await screen.findByRole('button', { name: /add to wishlist/i })).toBeInTheDocument();
   });
 
+  it('disables Add to Cart and shows Out of Stock when stockQuantity is 0', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...MOCK_PRODUCT, stockQuantity: 0 });
+    renderDetail();
+
+    const btn = await screen.findByRole('button', { name: /out of stock/i });
+    expect(btn).toBeDisabled();
+  });
+
   it('does not show wishlist button when not authenticated', async () => {
     vi.spyOn(api, 'request').mockResolvedValue(MOCK_PRODUCT);
     renderDetail(false, null);

@@ -21,6 +21,7 @@ export interface CartItem {
   productName: string;
   priceAtPurchase: number;
   quantity: number;
+  stockQuantity?: number;
 }
 
 export interface OrderSummary {

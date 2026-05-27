@@ -95,4 +95,17 @@ describe('Checkout — address validation', () => {
 
     expect(await screen.findByText('Items list is empty')).toBeInTheDocument();
   });
+
+  it('shows insufficient stock error when API returns 409', async () => {
+    vi.spyOn(api, 'request').mockRejectedValue(new api.ApiError(409, 'Insufficient stock.'));
+
+    renderCheckout();
+
+    await userEvent.type(screen.getByLabelText('Street'), 'Main St 1');
+    await userEvent.type(screen.getByLabelText('City'), 'Timisoara');
+    await userEvent.type(screen.getByLabelText('Country'), 'Romania');
+    await userEvent.click(screen.getByRole('button', { name: /place order/i }));
+
+    expect(await screen.findByText('Insufficient stock.')).toBeInTheDocument();
+  });
 });

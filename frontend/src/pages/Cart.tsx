@@ -38,6 +38,7 @@ export function Cart() {
                     <button
                       aria-label="increase quantity"
                       onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                      disabled={item.stockQuantity !== undefined && item.quantity >= item.stockQuantity}
                     >
                       +
                     </button>

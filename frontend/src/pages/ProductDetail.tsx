@@ -6,6 +6,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import type { Page, Product, WishlistItem } from '../types/products';
 
+function getCartButtonLabel(stockQuantity: number | undefined, addedToCart: boolean): string {
+  if (stockQuantity === 0) return 'Out of Stock';
+  if (addedToCart) return '✓ Added to Cart';
+  return 'Add to Cart';
+}
+
 export function ProductDetail() {
   const { productId } = useParams<{ productId: string }>();
   const { loggedIn, userId } = useAuth();
@@ -41,7 +47,7 @@ export function ProductDetail() {
 
   function handleAddToCart() {
     if (!product) return;
-    addItem({ productId: product.id, productName: product.name, priceAtPurchase: product.price });
+    addItem({ productId: product.id, productName: product.name, priceAtPurchase: product.price, stockQuantity: product.stockQuantity });
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 2000);
   }
@@ -126,8 +132,11 @@ export function ProductDetail() {
             )}
 
             <div className="cart-actions">
-              <button onClick={handleAddToCart}>
-                {addedToCart ? '✓ Added to Cart' : 'Add to Cart'}
+              <button
+                onClick={handleAddToCart}
+                disabled={product.stockQuantity === 0}
+              >
+                {getCartButtonLabel(product.stockQuantity, addedToCart)}
               </button>
             </div>
 
