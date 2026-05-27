@@ -17,6 +17,7 @@ import com.example.products_service.api.ProductDetailResponse;
 import com.example.products_service.api.ProductCreateResponse;
 import com.example.products_service.api.ProductImageResponse;
 import com.example.products_service.api.ProductSummaryResponse;
+import com.example.products_service.api.ReduceStockRequest;
 import com.example.products_service.api.UpdateProductRequest;
 import com.example.products_service.api.WishlistItemResponse;
 import com.example.products_service.entities.Product;
@@ -222,6 +223,39 @@ public class ProductController {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404)));
 
         this.productImageRepository.delete(image);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{productId}/reduce-stock")
+    public ResponseEntity<Void> reduceStock(
+        @PathVariable UUID productId,
+        @Valid @RequestBody ReduceStockRequest request,
+        Authentication authentication
+    ) {
+        extractUserId(authentication);
+
+        int updated = this.productRepository.reduceStockIfSufficient(productId, request.quantity());
+        if (updated == 0) {
+            if (!this.productRepository.existsById(productId)) {
+                throw new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404));
+            }
+            throw new ApiException(HttpStatus.CONFLICT, "Insufficient stock.");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{productId}/restore-stock")
+    public ResponseEntity<Void> restoreStock(
+        @PathVariable UUID productId,
+        @Valid @RequestBody ReduceStockRequest request,
+        Authentication authentication
+    ) {
+        extractUserId(authentication);
+
+        if (!this.productRepository.existsById(productId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, ApiErrorCatalog.defaultMessageFor(404));
+        }
+        this.productRepository.restoreStock(productId, request.quantity());
         return ResponseEntity.noContent().build();
     }
 

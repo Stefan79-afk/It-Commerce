@@ -7,6 +7,24 @@ const router = express.Router();
 const CANCELLABLE    = new Set(["CREATED", "PROCESSING"]);
 const ORDER_STATUSES = ["CREATED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"];
 
+const PRODUCTS_URL = process.env.PRODUCTS_SERVICE_URL ?? "http://products-service:8080";
+
+async function reduceStock(productId, quantity, bearerToken) {
+    return fetch(`${PRODUCTS_URL}/api/v1/products/${productId}/reduce-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: bearerToken },
+        body: JSON.stringify({ quantity }),
+    });
+}
+
+async function restoreStock(productId, quantity, bearerToken) {
+    await fetch(`${PRODUCTS_URL}/api/v1/products/${productId}/restore-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: bearerToken },
+        body: JSON.stringify({ quantity }),
+    }).catch(() => {});
+}
+
 function toSummary(o) {
     return { id: o._id, userId: o.userId, status: o.status,
              totalPrice: o.totalPrice, createdAt: o.createdAt };
@@ -23,6 +41,30 @@ router.post("/orders", authenticate, async (req, res, next) => {
 
         if (!Array.isArray(items) || items.length === 0) {
             return next(Object.assign(new Error("items must be a non-empty array"), { status: 400 }));
+        }
+
+        // Reduce stock for each item; compensate already-reduced items on failure
+        const bearerToken = req.headers.authorization;
+        const reduced = [];
+        for (const item of items) {
+            const stockRes = await reduceStock(item.productId, item.quantity, bearerToken);
+            if (!stockRes.ok) {
+                for (const r of reduced) {
+                    await restoreStock(r.productId, r.quantity, bearerToken);
+                }
+                if (stockRes.status === 404) {
+                    return next(Object.assign(
+                        new Error(`Product ${item.productId} not found.`),
+                        { status: 409 }
+                    ));
+                }
+                const stockBody = await stockRes.json().catch(() => ({}));
+                return next(Object.assign(
+                    new Error(stockBody.message ?? `Insufficient stock for product ${item.productId}.`),
+                    { status: 409 }
+                ));
+            }
+            reduced.push({ productId: item.productId, quantity: item.quantity });
         }
 
         // Compute server-side — never trust client-supplied total
@@ -47,8 +89,8 @@ router.post("/orders", authenticate, async (req, res, next) => {
 
 router.get("/orders", authenticate, async (req, res, next) => {
     try {
-        const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
-        const size = Math.max(1, parseInt(req.query.size ?? "20", 10) || 20);
+        const page = Math.max(0, Number.parseInt(req.query.page ?? "0", 10) || 0);
+        const size = Math.max(1, Number.parseInt(req.query.size ?? "20", 10) || 20);
         const userId = req.user.userId;
 
         const [docs, totalElements] = await Promise.all([

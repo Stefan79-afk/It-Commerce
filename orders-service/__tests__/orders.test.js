@@ -30,8 +30,14 @@ afterAll(async () => {
     await mongoServer.stop();
 });
 
+beforeEach(() => {
+    // Default: products service accepts all stock reductions
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 });
+});
+
 afterEach(async () => {
     await mongoose.connection.collection("orders").deleteMany({});
+    jest.restoreAllMocks();
 });
 
 function signToken(sub = "user-uuid-1", roles = ["USER"]) {
@@ -108,6 +114,54 @@ describe("POST /api/v1/orders", () => {
             .send({ ...validBody, shippingAddressSnapshot: { street: "Only Street" } });
 
         expect(res.status).toBe(400);
+    });
+
+    test("returns 409 when products service reports insufficient stock", async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: false,
+            status: 409,
+            json: async () => ({ message: "Insufficient stock." }),
+        });
+
+        const res = await request(app)
+            .post("/api/v1/orders")
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send(validBody);
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe("CONFLICT");
+        expect(res.body.message).toBe("Insufficient stock.");
+    });
+
+    test("compensates reduced items and returns 409 when a later item has insufficient stock", async () => {
+        const multiItemBody = {
+            ...validBody,
+            items: [
+                { productId: "prod-uuid-1", productName: "RTX 4080", priceAtPurchase: 999.99, quantity: 1 },
+                { productId: "prod-uuid-2", productName: "CPU i9",   priceAtPurchase: 599.99, quantity: 1 },
+            ],
+        };
+
+        global.fetch = jest.fn()
+            .mockResolvedValueOnce({ ok: true,  status: 204 })  // first item reduces fine
+            .mockResolvedValueOnce({             // second item: insufficient stock
+                ok: false, status: 409,
+                json: async () => ({ message: "Insufficient stock." }),
+            })
+            .mockResolvedValue({ ok: true, status: 204 });      // compensation restore call
+
+        const res = await request(app)
+            .post("/api/v1/orders")
+            .set("Authorization", `Bearer ${signToken()}`)
+            .send(multiItemBody);
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe("CONFLICT");
+        // Restore call should have been made for the first item
+        expect(global.fetch).toHaveBeenCalledTimes(3);
+        const restoreCall = global.fetch.mock.calls[2];
+        expect(restoreCall[0]).toContain("prod-uuid-1");
+        expect(restoreCall[0]).toContain("restore-stock");
     });
 });
 

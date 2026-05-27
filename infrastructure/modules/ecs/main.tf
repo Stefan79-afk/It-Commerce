@@ -218,8 +218,9 @@ resource "aws_ecs_task_definition" "orders" {
     }]
 
     environment = [
-      { name = "PORT",             value = "3000" },
-      { name = "ORDERS_JWKS_URL", value = local.jwks_url },
+      { name = "PORT",                  value = "3000" },
+      { name = "ORDERS_JWKS_URL",      value = local.jwks_url },
+      { name = "PRODUCTS_SERVICE_URL", value = "http://products-service:8080" },
     ]
 
     secrets = [
