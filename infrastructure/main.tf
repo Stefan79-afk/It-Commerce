@@ -62,6 +62,13 @@ module "alb" {
   alb_sg_id         = module.networking.alb_sg_id
 }
 
+module "cloudfront" {
+  source = "./modules/cloudfront"
+
+  project_name = var.project_name
+  alb_dns_name = module.alb.alb_dns_name
+}
+
 module "ecs" {
   source = "./modules/ecs"
 
@@ -84,7 +91,8 @@ module "ecs" {
   jwt_kid       = var.jwt_kid
   jwt_issuer    = var.jwt_issuer
   jwt_audience  = var.jwt_audience
-  alb_dns_name  = module.alb.alb_dns_name
+  alb_dns_name      = module.alb.alb_dns_name
+  cloudfront_domain = module.cloudfront.distribution_domain_name
 
   # Task sizing
   users_cpu       = var.users_cpu

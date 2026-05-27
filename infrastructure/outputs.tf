@@ -3,6 +3,11 @@ output "alb_dns_name" {
   value       = module.alb.alb_dns_name
 }
 
+output "cloudfront_url" {
+  description = "HTTPS URL of the CloudFront distribution — use this to access the app"
+  value       = "https://${module.cloudfront.distribution_domain_name}"
+}
+
 output "ecr_repository_urls" {
   description = "Map of service name → ECR image URL"
   value       = module.ecr.repository_urls

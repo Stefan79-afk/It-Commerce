@@ -1,4 +1,4 @@
-import { clearTokens, getAccessToken, getRefreshToken, setAccessToken } from './auth';
+import { clearTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from './auth';
 
 export const USERS_API = '/api/users/api/v1/users';
 export const PRODUCTS_API = '/api/products/api/v1/products';
@@ -23,8 +23,9 @@ async function attemptRefresh(): Promise<boolean> {
       return false;
     }
 
-    const data = (await res.json()) as { accessToken: string; expiresIn: number };
+    const data = (await res.json()) as { accessToken: string; refreshToken?: string; expiresIn: number };
     setAccessToken(data.accessToken);
+    if (data.refreshToken) setRefreshToken(data.refreshToken);
     return true;
   } catch {
     clearTokens();

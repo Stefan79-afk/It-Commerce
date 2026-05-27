@@ -54,10 +54,11 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
     })
       .then((res) => {
         if (!res.ok) throw new Error('Refresh failed');
-        return res.json() as Promise<{ accessToken: string }>;
+        return res.json() as Promise<{ accessToken: string; refreshToken?: string }>;
       })
       .then((data) => {
         setAccessToken(data.accessToken);
+        if (data.refreshToken) setRefreshToken(data.refreshToken);
         setState({ loggedIn: true, loading: false, userId: parseUserId(data.accessToken) });
       })
       .catch(() => {
