@@ -4,7 +4,7 @@ import { NavBar } from '../components/NavBar';
 import { ApiError, request, ORDERS_API } from '../lib/api';
 import type { Order } from '../types/orders';
 
-const CANCELLABLE: Order['status'][] = ['CREATED', 'PROCESSING'];
+const CANCELLABLE = new Set<Order['status']>(['CREATED', 'PROCESSING']);
 
 export function OrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -66,26 +66,28 @@ export function OrderDetail() {
             </p>
 
             {order.items && order.items.length > 0 && (
-              <table className="order-items-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Price</th>
-                    <th>Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.items.map((item) => (
-                    <tr key={item.productId}>
-                      <td>{item.productName}</td>
-                      <td>{item.quantity}</td>
-                      <td>${item.priceAtPurchase.toFixed(2)}</td>
-                      <td>${(item.priceAtPurchase * item.quantity).toFixed(2)}</td>
+              <div className="order-table-wrapper">
+                <table className="order-items-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Price</th>
+                      <th>Subtotal</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {order.items.map((item) => (
+                      <tr key={item.productId}>
+                        <td>{item.productName}</td>
+                        <td>{item.quantity}</td>
+                        <td>${item.priceAtPurchase.toFixed(2)}</td>
+                        <td>${(item.priceAtPurchase * item.quantity).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {order.shippingAddressSnapshot && (
@@ -103,7 +105,7 @@ export function OrderDetail() {
               </div>
             )}
 
-            {CANCELLABLE.includes(order.status) && (
+            {CANCELLABLE.has(order.status) && (
               <div className="order-actions">
                 {cancelError && <p className="error" style={{ marginBottom: '8px' }}>{cancelError}</p>}
                 <button
