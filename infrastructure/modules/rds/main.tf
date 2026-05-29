@@ -26,8 +26,9 @@ resource "aws_db_instance" "users" {
   publicly_accessible = false
   storage_encrypted   = true
 
-  backup_retention_period = 7
-  skip_final_snapshot     = true
+  backup_retention_period   = 7
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.project_name}-users-final-snapshot"
 
   tags = { Name = "${var.project_name}-users-postgres" }
 }
@@ -52,8 +53,9 @@ resource "aws_db_instance" "products" {
   publicly_accessible = false
   storage_encrypted   = true
 
-  backup_retention_period = 7
-  skip_final_snapshot     = true
+  backup_retention_period   = 7
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.project_name}-products-final-snapshot"
 
   tags = { Name = "${var.project_name}-products-postgres" }
 }

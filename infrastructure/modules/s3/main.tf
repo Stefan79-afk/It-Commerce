@@ -1,5 +1,6 @@
 resource "aws_s3_bucket" "product_images" {
-  bucket = "${var.project_name}-product-images"
+  bucket        = "${var.project_name}-product-images"
+  force_destroy = true
 
   tags = { Name = "${var.project_name}-product-images" }
 }
